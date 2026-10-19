@@ -1,0 +1,49 @@
+name: Release Windows baseline
+on:
+  push:
+    tags: ['v*']
+permissions:
+  contents: write
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+env:
+  DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+  DOTNET_SKIP_FIRST_TIME_EXPERIENCE: '1'
+  PYTHONUTF8: '1'
+jobs:
+  release:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify tag, test, and build
+        shell: powershell
+        run: |
+          $version = $env:GITHUB_REF_NAME.Substring(1)
+          ./tools/publish-windows.ps1 -ExpectedVersion $version
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-win-x64
+          if-no-files-found: error
+          path: |
+            dist/*.zip
+            dist/*.sha256
+      - name: Publish prerelease
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = $env:GITHUB_REF_NAME
+          $notes = "docs/releases/$tag.md"
+          if (!(Test-Path $notes)) { throw "Missing release notes: $notes" }
+          $assets = @(Get-ChildItem dist -File | Where-Object { $_.Name -like '*.zip' -or $_.Name -like '*.sha256' } | ForEach-Object { $_.FullName })
+          if ($assets.Count -ne 2) { throw 'Expected one ZIP and one SHA-256 file.' }
+          gh release create $tag @assets --repo $env:GITHUB_REPOSITORY --verify-tag --title "$tag - Windows desktop baseline" --notes-file $notes --prerelease
+          if ($LASTEXITCODE -ne 0) { throw 'Release publication failed.' }

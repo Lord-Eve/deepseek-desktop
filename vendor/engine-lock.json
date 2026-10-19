@@ -1,0 +1,10 @@
+{
+  "repository": "https://github.com/NIyueeE/ds-free-api",
+  "version": "v0.5.1",
+  "commit": "2cb3b90ff3f6d3056d56db2598acb10e44823bb4",
+  "asset": "ds-free-api-v0.5.1-windows-x86_64.zip",
+  "archiveSha256": "2775b2aa5c54141ca5d2e89354d8e68a677b256004848147492c85a9ce229dee",
+  "binarySha256": "70a4dbe9a4d168c58f95e13b12e3c9bf7cb79801fec49b0b9d64f89cb4deb580",
+  "sourceArchive": "ds-free-api-v0.5.1-source.tar.gz",
+  "sourceSha256": "3abe3ee3e5e6184c4fb3ac3e18235f64144c8cf281ffae71a752ef8f9c4ecbc6"
+}

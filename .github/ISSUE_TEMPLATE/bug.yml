@@ -1,0 +1,28 @@
+name: 问题反馈
+description: 反馈桌面程序或本地接口问题
+title: "[Bug] "
+body:
+  - type: input
+    id: version
+    attributes:
+      label: 程序版本
+      placeholder: "0.1.0"
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Windows 版本与接入客户端
+      placeholder: "Windows 11 / Cherry Studio"
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤与预期行为
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: 已脱敏的错误信息
+      description: 不要提交账号、密码、API Key、device_id、Cookie 或完整运行配置。
+      render: text

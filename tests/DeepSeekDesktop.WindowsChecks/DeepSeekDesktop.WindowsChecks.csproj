@@ -1,0 +1,8 @@
+<Project Sdk="Microsoft.NET.Sdk">
+ <PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net8.0-windows</TargetFramework><EnableWindowsTargeting>true</EnableWindowsTargeting><ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable><TreatWarningsAsErrors>true</TreatWarningsAsErrors></PropertyGroup>
+ <ItemGroup>
+  <ProjectReference Include="../../src/DeepSeekDesktop.Core/DeepSeekDesktop.Core.csproj"/>
+  <Compile Include="../../src/DeepSeekDesktop/PrivateStorage.cs" Link="PrivateStorage.cs"/>
+  <Compile Include="../../src/DeepSeekDesktop/ProcessJob.cs" Link="ProcessJob.cs"/>
+ </ItemGroup>
+</Project>
