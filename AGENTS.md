@@ -7,6 +7,7 @@
 - `src/DeepSeekDesktop`：窗口、托盘、Windows DPAPI/ACL、引擎进程托管。
 - `vendor/engine-lock.json` 固定上游版本与校验和；`vendor/*-source.tar.gz` 是对应完整源码，不要随意移除。
 - `.github/workflows/windows.yml` 执行检查和打包；`release.yml` 仅由版本 tag 触发发布。
+- 只在 Git 工作区修改、构建和验证；不要直接修改已解压的安装目录。新版本通过发布包交付，由用户重新下载升级。
 
 ## 开发与验证
 

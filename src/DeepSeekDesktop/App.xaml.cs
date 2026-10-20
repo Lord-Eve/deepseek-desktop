@@ -1,4 +1,5 @@
 using System;
+using System.Reflection;
 using System.Threading;
 using System.Windows;
 
@@ -6,6 +7,9 @@ namespace DeepSeekDesktop;
 
 public partial class App : Application
 {
+    public static string Version { get; } = typeof(App).Assembly
+        .GetCustomAttribute<AssemblyInformationalVersionAttribute>()!.InformationalVersion.Split('+')[0];
+
     private Mutex? instance;
     protected override void OnStartup(StartupEventArgs e)
     {

@@ -23,6 +23,7 @@ public partial class MainWindow : Window
     private readonly ConcurrentQueue<string> logs = new();
     private readonly DispatcherTimer timer = new() { Interval = TimeSpan.FromSeconds(2) };
     private Forms.NotifyIcon? tray;
+    private System.Drawing.Icon? trayIcon;
     private bool busy, polling, quitting, initialized;
     private bool stopInProgress;
     private int editing = -1;
@@ -65,7 +66,10 @@ public partial class MainWindow : Window
         menu.Items.Add("打开 DeepSeek Desktop", null, (_, _) => Dispatcher.Invoke(ShowWindow));
         menu.Items.Add("停止服务", null, async (_, _) => await StopServiceAsync());
         menu.Items.Add("退出程序", null, async (_, _) => await QuitAsync());
-        tray = new Forms.NotifyIcon { Text = "DeepSeek Desktop · 已停止", Icon = System.Drawing.SystemIcons.Application, ContextMenuStrip = menu, Visible = true };
+        using var resource = Application.GetResourceStream(new Uri("pack://application:,,,/DeepSeekDesktop;component/Assets/deepseek-whale-girl.ico")).Stream;
+        using var icon = new System.Drawing.Icon(resource, Forms.SystemInformation.SmallIconSize);
+        trayIcon = (System.Drawing.Icon)icon.Clone();
+        tray = new Forms.NotifyIcon { Text = "DeepSeek Desktop · 已停止", Icon = trayIcon, ContextMenuStrip = menu, Visible = true };
         tray.DoubleClick += (_, _) => Dispatcher.Invoke(ShowWindow);
     }
     private void ShowWindow() { Show(); WindowState = WindowState.Normal; Activate(); }
@@ -249,7 +253,6 @@ public partial class MainWindow : Window
     {
         if (quitting) return;
         e.Cancel = true; Hide();
-        if (tray != null) tray.ShowBalloonTip(1800, "DeepSeek Desktop", "程序已收起到托盘。本地服务保持当前状态。", Forms.ToolTipIcon.Info);
     }
     private async void Exit_Click(object sender, RoutedEventArgs e) => await QuitAsync();
     private async Task QuitAsync()
@@ -258,6 +261,6 @@ public partial class MainWindow : Window
         quitting = true; timer.Stop(); testCancellation?.Cancel();
         try { if (initialized) await engine.StopAsync(); }
         catch (Exception) { MessageBox.Show(this, "退出时未能完成运行文件清理，下次启动将再次尝试清理。", "DeepSeek Desktop", MessageBoxButton.OK, MessageBoxImage.Information); }
-        finally { tray?.Dispose(); engine.Dispose(); Application.Current.Shutdown(); }
+        finally { tray?.Dispose(); trayIcon?.Dispose(); engine.Dispose(); Application.Current.Shutdown(); }
     }
 }

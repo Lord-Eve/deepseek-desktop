@@ -27,6 +27,10 @@ try {
     if (Test-Path $outputDir) { Remove-Item $outputDir -Recurse -Force }
     dotnet publish src/DeepSeekDesktop/DeepSeekDesktop.csproj -c Release -r win-x64 -p:SelfContained=true -p:PublishSingleFile=true -p:EnableCompressionInSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o $outputDir
     if ($LASTEXITCODE -ne 0) { throw 'Desktop publish failed.' }
+    $publishedVersion = [Diagnostics.FileVersionInfo]::GetVersionInfo((Join-Path $outputDir 'DeepSeekDesktop.exe'))
+    if ($publishedVersion.ProductVersion.Split('+')[0] -ne $version -or $publishedVersion.FileVersion -ne ($version + '.0')) {
+        throw 'Published executable and project version do not match.'
+    }
     New-Item (Join-Path $outputDir 'engine') -ItemType Directory -Force | Out-Null
     Copy-Item engine/ds-free-api.exe (Join-Path $outputDir 'engine/')
     Copy-Item README.md,LICENSE,THIRD-PARTY-NOTICES.md,CHANGELOG.md $outputDir

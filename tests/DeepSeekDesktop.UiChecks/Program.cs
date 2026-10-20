@@ -1,4 +1,5 @@
 using System.IO;
+using System.Diagnostics;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
@@ -31,6 +32,21 @@ internal static class Program
         var exit = Descendants(root).OfType<Button>().First(b => b.Content as string == "退出程序");
         var exitCaption = Descendants(exit).OfType<TextBlock>().First(t => t.Text == "退出程序");
         Check(exitCaption.Foreground.ToString() == "#FFCBD5EC", "Dark sidebar button caption must inherit light text.");
+        var version = FileVersionInfo.GetVersionInfo(typeof(App).Assembly.Location);
+        Check(((TextBlock)window.FindName("VersionLabel")).Text == $"{version.ProductVersion!.Split('+')[0]} · 非官方客户端",
+            "Sidebar version must match the compiled product version.");
+        Check(((TextBlock)window.FindName("VersionDetail")).Text == $"桌面端 {version.ProductVersion!.Split('+')[0]} · 协议引擎 ds-free-api v0.5.1",
+            "Settings version must match the compiled product version.");
+        Check(window.Icon is BitmapFrame frame && frame.PixelWidth > 0, "Window icon must load from the application resources.");
+        using (var resource = Application.GetResourceStream(new Uri("pack://application:,,,/DeepSeekDesktop;component/Assets/deepseek-whale-girl.ico")).Stream)
+        {
+            var decoder = new IconBitmapDecoder(resource, BitmapCreateOptions.PreservePixelFormat, BitmapCacheOption.OnLoad);
+            Check(new[] { 16, 24, 32, 48, 256 }.All(size => decoder.Frames.Any(f => f.PixelWidth == size && f.PixelHeight == size)),
+                "Application icon must include native tray, taskbar and Explorer sizes.");
+        }
+        using (var resource = Application.GetResourceStream(new Uri("pack://application:,,,/DeepSeekDesktop;component/Assets/deepseek-whale-girl.ico")).Stream)
+        using (var icon = new System.Drawing.Icon(resource, new System.Drawing.Size(16, 16)))
+            Check(icon.Width == 16 && icon.Height == 16, "Native tray icon must decode at small size.");
         var pages = (TabControl)window.FindName("Pages");
         pages.SelectedIndex = 3;
         var logs = (TextBox)window.FindName("LogsBox");
@@ -65,6 +81,11 @@ internal static class Program
             using var file = File.Create(args[0]);
             encoder.Save(file);
         }
+        int closeAttempts = 0;
+        window.Closing += (_, e) => { if (e.Cancel) closeAttempts++; };
+        window.Close();
+        window.Close();
+        Check(closeAttempts == 2 && !window.IsVisible, "Repeated closes must keep the window available in the tray.");
         Console.WriteLine($"PASS: {checks} WPF layout and inherited color checks (no real settings or login)");
         app.Shutdown();
     }
