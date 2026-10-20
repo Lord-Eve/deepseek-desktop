@@ -111,7 +111,9 @@ python tests/engine_contract.py --engine /path/to/ds-free-api --config fixture.t
 
 已通过：18 项核心检查；18 项针对固定版本真实引擎的本地模拟上游检查（含鉴权、禁用 Web 密码登录、中文/emoji、多轮、SSE 结束、Responses、Anthropic、统计、未知模型与上游拒绝）；Windows 项目零警告编译；Win-x64 自包含发布。固定引擎依赖的公开 PoW WASM 资源下载返回 HTTP 200。
 
-未验证：实际 Win11 窗口、托盘和 DPI 交互；Windows 原生 DPAPI/ACL/Job 测试的真实执行；DeepSeek 账号登录与跨时段使用；四个目标客户端的真实接入。Windows 原生检查和 CI 入口已提供，不能将“测试代码已编写”当作“测试已执行”。
+Windows 原生 DPAPI/ACL/Job 的 6 项检查已在 GitHub Windows CI 实际执行通过，连同核心与协议检查共 42 项。记录见 [验证记录](docs/validation.md)。
+
+未验证：实际 Win11 窗口、托盘和 DPI 交互；DeepSeek 账号登录与跨时段使用；四个目标客户端的真实接入。托管 Windows runner 的检查不能代替你的 Win11 桌面和真实账号验收。
 
 ## 许可证和来源
 
