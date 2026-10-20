@@ -13,6 +13,7 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using DeepSeekDesktop.Core;
+using DeepSeekDesktop.Gateway;
 
 namespace DeepSeekDesktop;
 
@@ -28,10 +29,12 @@ internal sealed class EngineHost : IDisposable
     private string? runDirectory;
     private string secret = "";
     private Settings? active;
-    public bool IsRunning => spawned && process is { HasExited: false };
+    private QingyanGateway? qingyan;
+    public bool IsRunning => qingyan?.IsRunning == true || spawned && process is { HasExited: false };
     public bool IsReady { get; private set; }
     public string? BaseUrl => active?.BaseUrl;
     public event Action<string>? Log;
+    public event Action<string, string>? RefreshTokenChanged;
 
     public async Task StartAsync(Settings settings)
     {
@@ -41,6 +44,15 @@ internal sealed class EngineHost : IDisposable
             if (IsRunning) throw new InvalidOperationException("服务已在运行。");
             await CleanupAsync();
             settings.Validate();
+            if (settings.Provider == Providers.Qingyan)
+            {
+                active = JsonSerializer.Deserialize<Settings>(JsonSerializer.Serialize(settings))!;
+                starting = new CancellationTokenSource(TimeSpan.FromMinutes(3));
+                qingyan = new QingyanGateway(active, (old, next) => RefreshTokenChanged?.Invoke(old, next), line => Log?.Invoke(line));
+                await qingyan.StartAsync(starting.Token);
+                IsReady = true;
+                return;
+            }
             var path = Path.Combine(AppContext.BaseDirectory, "engine", "ds-free-api.exe");
             if (!File.Exists(path)) throw new FileNotFoundException("缺少协议引擎，请使用完整发布包，或运行 tools/prepare-engine.ps1。", path);
             using (var stream = File.OpenRead(path))
@@ -89,7 +101,7 @@ internal sealed class EngineHost : IDisposable
             }
             starting.Token.ThrowIfCancellationRequested();
         }
-        catch (OperationCanceledException) { await CleanupAsync(); throw new IOException("启动已取消或超过 3 分钟，请检查账号、device_id 和网络后重试。"); }
+        catch (OperationCanceledException) { await CleanupAsync(); throw new IOException("启动已取消或超过 3 分钟，请检查账号登录信息和网络后重试。"); }
         catch { await CleanupAsync(); throw; }
         finally { starting?.Dispose(); starting = null; gate.Release(); }
     }
@@ -104,6 +116,7 @@ internal sealed class EngineHost : IDisposable
     private async Task CleanupAsync()
     {
         IsReady = false;
+        if (qingyan != null) { await qingyan.DisposeAsync(); qingyan = null; }
         if (process != null)
         {
             try
@@ -152,6 +165,7 @@ internal sealed class EngineHost : IDisposable
     public async Task<JsonElement> AdminAsync(string resource)
     {
         if (resource is not ("stats" or "status")) throw new ArgumentException("不支持的状态资源。");
+        if (qingyan != null) return qingyan.Status(resource);
         using var request = Request(HttpMethod.Get, "/admin/api/" + resource, true);
         using var response = await http.SendAsync(request);
         response.EnsureSuccessStatusCode();
@@ -162,7 +176,7 @@ internal sealed class EngineHost : IDisposable
     public async Task<string> SendTestAsync(CancellationToken cancellation)
     {
         using var request = Request(HttpMethod.Post, "/v1/chat/completions");
-        request.Content = JsonContent.Create(new { model = "deepseek-default", messages = new[] { new { role = "user", content = "请仅回复：连接成功" } }, stream = false, reasoning_effort = "none", web_search_options = new { search_context_size = "none" } });
+        request.Content = JsonContent.Create(new { model = active!.Model, messages = new[] { new { role = "user", content = "请仅回复：连接成功" } }, stream = false, reasoning_effort = "none", web_search_options = new { search_context_size = "none" } });
         // The short timeout on status requests must not cut off an actual model completion.
         using var client = new HttpClient(new HttpClientHandler { UseProxy = false, AllowAutoRedirect = false }) { Timeout = TimeSpan.FromSeconds(120) };
         using var response = await client.SendAsync(request, cancellation);

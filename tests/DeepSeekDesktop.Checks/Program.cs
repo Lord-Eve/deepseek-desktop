@@ -69,4 +69,14 @@ Check(missingRelease, "An empty compatible release feed must not claim the app i
 bool invalidFeed = false;
 try { _ = UpdateFeed.Latest("{}"); } catch (InvalidDataException) { invalidFeed = true; }
 Check(invalidFeed, "An API error object must not be interpreted as a release list.");
+var migrated = JsonSerializer.Deserialize<Settings>("""{"Port":22217,"ApiKey":"sk-local-previous-0123456789012345","Accounts":[{"Login":"old@example.test","Password":"old-password","DeviceId":"old-device"}]}""")!;
+Check(migrated.Provider == Providers.DeepSeek && migrated.Accounts[0].Provider == Providers.DeepSeek, "Old settings without provider fields must remain DeepSeek settings.");
+migrated.Accounts.Add(new Account { Provider = Providers.Qingyan, RefreshToken = "fixture-qingyan-refresh-0123456789" });
+var previousKey = migrated.ApiKey;
+migrated.Provider = Providers.Qingyan; migrated.Validate();
+Check(migrated.ApiKey == previousKey && migrated.Accounts[0].Password == "old-password", "Switching platform must preserve the shared key and other platform credentials.");
+Check(!EngineConfig.Render(migrated, "fixture-admin-secret").Contains("fixture-qingyan-refresh"), "Qingyan tokens must never enter the Rust engine configuration.");
+Check(!LogRedactor.Redact("credential=" + migrated.Accounts[1].RefreshToken, migrated, "").Contains("fixture-qingyan-refresh"), "Qingyan refresh tokens must be redacted even without an auth field name.");
+migrated.Accounts[1].RefreshToken = "token\r\ninjection";
+Invalid(() => migrated.Validate(), "Qingyan credentials must not inject HTTP headers.");
 Console.WriteLine($"PASS: {assertions} core checks");

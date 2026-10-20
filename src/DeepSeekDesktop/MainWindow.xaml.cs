@@ -32,11 +32,20 @@ public partial class MainWindow : Window
     private readonly CancellationTokenSource updateCancellation = new();
     private bool checkingUpdates, startupUpdateChecked;
     private string updatePageUrl = UpdateFeed.ReleasesUrl;
+    private bool loadingProvider;
 
     public MainWindow()
     {
         InitializeComponent();
         engine.Log += line => { if (logs.Count < 2000) logs.Enqueue(line); };
+        engine.RefreshTokenChanged += (old, next) => Dispatcher.Invoke(() =>
+        {
+            var candidate = Clone();
+            var account = candidate.Accounts.Single(a => a.Enabled && a.Provider == Providers.Qingyan && a.RefreshToken == old);
+            account.RefreshToken = next;
+            PrivateStorage.Save(candidate);
+            settings = candidate;
+        });
         Loaded += (_, _) => Initialize();
         timer.Tick += async (_, _) => await RefreshAsync();
     }
@@ -80,19 +89,40 @@ public partial class MainWindow : Window
 
     private void LoadSettings()
     {
+        loadingProvider = true;
+        ProviderBox.SelectedIndex = settings.Provider == Providers.Qingyan ? 1 : 0;
+        loadingProvider = false;
+        bool qingyan = settings.Provider == Providers.Qingyan;
+        DeepSeekCredentials.Visibility = qingyan ? Visibility.Collapsed : Visibility.Visible;
+        QingyanCredentials.Visibility = qingyan ? Visibility.Visible : Visibility.Collapsed;
+        CredentialHelpButton.Content = qingyan ? "如何获取登录态" : "如何获取 device_id";
+        ModelHint.Text = $"模型：{settings.Model}（网页端当前默认模式）";
+        StartupHint.Text = qingyan ? "清言启动仅刷新并校验登录态，不发送对话。当前支持文本多轮及流式回复；暂不支持工具调用和图片。" : "DeepSeek 启动会登录启用账号，并发送后端自带的健康检查消息。";
         PortBox.Text = settings.Port.ToString(); QuotaBox.Text = settings.HourlyQuota.ToString(); ProxyBox.Text = settings.ProxyUrl;
         SearchEnabled.IsChecked = settings.SearchEnabled; EndpointBox.Text = settings.BaseUrl;
         ApiKeyBox.Text = settings.ApiKey;
     }
     private void LoadAccounts()
     {
-        AccountList.ItemsSource = null; AccountList.ItemsSource = settings.Accounts;
-        AccountSummary.Text = $"{settings.Accounts.Count} 个账号 · {settings.Accounts.Count(a => a.Enabled)} 个启用";
+        var accounts = settings.Accounts.Where(a => a.Provider == settings.Provider).ToList();
+        AccountList.ItemsSource = null; AccountList.ItemsSource = accounts;
+        AccountSummary.Text = $"{settings.ProviderName} · {accounts.Count} 个账号 · {accounts.Count(a => a.Enabled)} 个启用";
     }
     private void ResetAccount()
     {
         editing = -1; AccountList.SelectedIndex = -1; AccountEditorTitle.Text = "添加账号";
-        AccountName.Text = "我的 DeepSeek"; AccountLogin.Text = ""; AccountPassword.Clear(); AccountDevice.Clear(); AccountEnabled.IsChecked = true;
+        AccountName.Text = "我的 " + settings.ProviderName; AccountLogin.Text = ""; AccountPassword.Clear(); AccountDevice.Clear(); AccountToken.Clear(); AccountEnabled.IsChecked = true;
+    }
+    private void Provider_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (!initialized || loadingProvider) return;
+        try
+        {
+            var candidate = Clone(); candidate.Provider = ProviderBox.SelectedIndex == 1 ? Providers.Qingyan : Providers.DeepSeek;
+            Save(candidate); ResetAccount(); poolStatus = null; TestReply.Text = "尚未测试"; UpdateState();
+            Tell($"已切换到{settings.ProviderName}。原平台账号已保留；客户端模型请改为 {settings.Model}。");
+        }
+        catch (Exception ex) { LoadSettings(); Error(ex); }
     }
     private Settings Clone() => JsonSerializer.Deserialize<Settings>(JsonSerializer.Serialize(settings))!;
     private void Save(Settings candidate)
@@ -112,6 +142,7 @@ public partial class MainWindow : Window
     {
         bool running = engine.IsRunning, ready = running && engine.IsReady;
         StartButton.IsEnabled = !running && !busy && !stopInProgress;
+        ProviderBox.IsEnabled = !running && !busy && !stopInProgress;
         StopButton.IsEnabled = (running || busy) && !stopInProgress;
         ProbeButton.IsEnabled = ready && !busy && !stopInProgress;
         TestButton.IsEnabled = ready && poolStatus?.HasUsableAccount == true && !busy && !stopInProgress && testCancellation == null;
@@ -149,7 +180,7 @@ public partial class MainWindow : Window
     }
     private async void Test_Click(object sender, RoutedEventArgs e)
     {
-        testCancellation = new CancellationTokenSource(); UpdateState(); TestReply.Text = "等待 DeepSeek 回复…";
+        testCancellation = new CancellationTokenSource(); UpdateState(); TestReply.Text = $"等待{settings.ProviderName}回复…";
         try { TestReply.Text = await engine.SendTestAsync(testCancellation.Token); Tell("已收到上游响应。"); }
         catch (OperationCanceledException) { TestReply.Text = "测试已取消。"; }
         catch (Exception ex) { TestReply.Text = "测试未成功，请查看运行日志。"; Error(ex); }
@@ -190,8 +221,8 @@ public partial class MainWindow : Window
     private void AccountList_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         if (AccountList.SelectedItem is not Account a) return;
-        editing = AccountList.SelectedIndex; AccountEditorTitle.Text = "编辑账号"; AccountName.Text = a.Name; AccountLogin.Text = a.Login;
-        AccountPassword.Clear(); AccountDevice.Clear(); AccountEnabled.IsChecked = a.Enabled;
+        editing = settings.Accounts.IndexOf(a); AccountEditorTitle.Text = "编辑账号"; AccountName.Text = a.Name; AccountLogin.Text = a.Login;
+        AccountPassword.Clear(); AccountDevice.Clear(); AccountToken.Clear(); AccountEnabled.IsChecked = a.Enabled;
     }
     private void NewAccount_Click(object sender, RoutedEventArgs e) { ResetAccount(); AccountName.Focus(); }
     private void SaveAccount_Click(object sender, RoutedEventArgs e)
@@ -200,9 +231,9 @@ public partial class MainWindow : Window
         {
             var candidate = Clone();
             var old = editing >= 0 ? candidate.Accounts[editing] : null;
-            var value = new Account { Name = AccountName.Text.Trim(), Login = AccountLogin.Text.Trim(), Password = AccountPassword.Password.Length > 0 ? AccountPassword.Password : old?.Password ?? "", DeviceId = AccountDevice.Password.Length > 0 ? AccountDevice.Password.Trim() : old?.DeviceId ?? "", Enabled = AccountEnabled.IsChecked == true };
+            var value = new Account { Provider = settings.Provider, RefreshToken = AccountToken.Password.Length > 0 ? AccountToken.Password.Trim() : old?.RefreshToken ?? "", Name = AccountName.Text.Trim(), Login = AccountLogin.Text.Trim(), Password = AccountPassword.Password.Length > 0 ? AccountPassword.Password : old?.Password ?? "", DeviceId = AccountDevice.Password.Length > 0 ? AccountDevice.Password.Trim() : old?.DeviceId ?? "", Enabled = AccountEnabled.IsChecked == true };
             if (value.Name.Length == 0) throw new ArgumentException("请填写账号名称。");
-            if (old != null && old.Login != value.Login && (AccountPassword.Password.Length == 0 || AccountDevice.Password.Length == 0)) throw new ArgumentException("更换登录名时，请同时填写该账号的密码和 device_id。");
+            if (settings.Provider == Providers.DeepSeek && old != null && old.Login != value.Login && (AccountPassword.Password.Length == 0 || AccountDevice.Password.Length == 0)) throw new ArgumentException("更换登录名时，请同时填写该账号的密码和 device_id。");
             if (editing >= 0) candidate.Accounts[editing] = value; else candidate.Accounts.Add(value);
             Save(candidate); ResetAccount(); Tell("账号已加密保存。启动服务后可查看账号池状态。");
         }
@@ -212,7 +243,7 @@ public partial class MainWindow : Window
     {
         if (AccountList.SelectedIndex < 0) { Tell("请先选择账号。"); return; }
         if (MessageBox.Show(this, "从本机删除选中账号的保存信息？", "删除账号", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
-        try { var candidate = Clone(); candidate.Accounts.RemoveAt(AccountList.SelectedIndex); Save(candidate); ResetAccount(); Tell("账号已从本机删除。"); } catch (Exception ex) { Error(ex); }
+        try { var candidate = Clone(); candidate.Accounts.RemoveAt(editing); Save(candidate); ResetAccount(); Tell("账号已从本机删除。"); } catch (Exception ex) { Error(ex); }
     }
     private void SaveSettings_Click(object sender, RoutedEventArgs e)
     {
@@ -284,6 +315,11 @@ public partial class MainWindow : Window
     }
     private void DeviceHelp_Click(object sender, RoutedEventArgs e)
     {
+        if (settings.Provider == Providers.Qingyan)
+        {
+            MessageBox.Show(this, "在你自己的浏览器登录 https://chatglm.cn，确认可以正常对话。\n\n按 F12 → Application（应用）→ Cookies 或 Local Storage，查找 chatglm_refresh_token，复制其值到本程序的清言 refresh token 输入框。不要复制 chatglm_token（短期访问令牌）。\n\n本程序不会读取浏览器数据。登录态按 Windows 用户加密保存；上游轮换令牌时自动保存新值。不要把 Token 发到聊天、截图或公开 Issue。\n\n如果该字段不存在，请先退出并重新登录网页；网页字段可能发生变化。", "清言登录态", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
         MessageBox.Show(this, "本版本需要已有 DeepSeek 账号的真实 device_id。\n\n在浏览器登录 chat.deepseek.com，开发者工具 → Network 中查看 users/login 请求体里的 device_id。每个账号分别获取。\n\n上游接口可能改变；若找不到该字段或登录触发验证码，本版本暂无法自动处理。不要把密码、Token 或 device_id 发到聊天或公开 Issue。\n\n更完整步骤见发布包的 README.md。", "设备信息", MessageBoxButton.OK, MessageBoxImage.Information);
     }
     private void Window_Closing(object? sender, CancelEventArgs e)

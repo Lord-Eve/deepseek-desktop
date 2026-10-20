@@ -5,6 +5,8 @@ using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using DeepSeekDesktop;
+using DeepSeekDesktop.Core;
+using System.Reflection;
 
 internal static class Program
 {
@@ -91,6 +93,19 @@ internal static class Program
             using var file = File.Create(args[0]);
             encoder.Save(file);
         }
+        var fixture = new Settings { Provider = Providers.Qingyan, Accounts = [new Account { Name = "DeepSeek fixture", Login = "fixture@example.test" }, new Account { Provider = Providers.Qingyan, Name = "清言 fixture", RefreshToken = "fixture-only-refresh-token" }] };
+        var flags = BindingFlags.Instance | BindingFlags.NonPublic;
+        typeof(MainWindow).GetField("settings", flags)!.SetValue(window, fixture);
+        foreach (var method in new[] { "LoadSettings", "LoadAccounts", "ResetAccount" }) typeof(MainWindow).GetMethod(method, flags)!.Invoke(window, null);
+        Check(((ComboBox)window.FindName("ProviderBox")).SelectedIndex == 1 && ((TextBlock)window.FindName("ModelHint")).Text.Contains("qingyan-default"), "Platform and model labels must agree.");
+        Check(((FrameworkElement)window.FindName("DeepSeekCredentials")).Visibility == Visibility.Collapsed && ((FrameworkElement)window.FindName("QingyanCredentials")).Visibility == Visibility.Visible, "Qingyan must show token input instead of DeepSeek passwords.");
+        var accounts = (ListBox)window.FindName("AccountList");
+        Check(accounts.Items.Count == 1 && ReferenceEquals(accounts.Items[0], fixture.Accounts[1]), "Account management must filter by platform without exposing the token.");
+        accounts.SelectedIndex = 0;
+        Check((int)typeof(MainWindow).GetField("editing", flags)!.GetValue(window)! == 1 && ((PasswordBox)window.FindName("AccountToken")).Password.Length == 0, "Editing a filtered account must use its underlying index and keep the saved token hidden.");
+        fixture.Provider = Providers.DeepSeek;
+        foreach (var method in new[] { "LoadSettings", "LoadAccounts", "ResetAccount" }) typeof(MainWindow).GetMethod(method, flags)!.Invoke(window, null);
+        Check(accounts.Items.Count == 1 && ReferenceEquals(accounts.Items[0], fixture.Accounts[0]) && fixture.Accounts[1].RefreshToken == "fixture-only-refresh-token", "Switching back must preserve both platforms' accounts.");
         int closeAttempts = 0;
         window.Closing += (_, e) => { if (e.Cancel) closeAttempts++; };
         window.Close();

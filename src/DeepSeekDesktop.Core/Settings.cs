@@ -6,16 +6,26 @@ namespace DeepSeekDesktop.Core;
 
 public sealed class Account
 {
+    public string Provider { get; set; } = Providers.DeepSeek;
+    public string RefreshToken { get; set; } = "";
     public string Name { get; set; } = "我的 DeepSeek";
     public string Login { get; set; } = "";
     public string Password { get; set; } = "";
     public string DeviceId { get; set; } = "";
     public bool Enabled { get; set; } = true;
-    public override string ToString() => $"{(Enabled ? "●" : "○")}  {Name}  ·  {Login}";
+    public override string ToString() => $"{(Enabled ? "●" : "○")}  {Name}" + (Provider == Providers.DeepSeek ? $"  ·  {Login}" : "  ·  清言");
+}
+
+public static class Providers
+{
+    public const string DeepSeek = "deepseek", Qingyan = "qingyan";
 }
 
 public sealed class Settings
 {
+    public string Provider { get; set; } = Providers.DeepSeek;
+    public string ProviderName => Provider == Providers.Qingyan ? "智谱清言" : "DeepSeek";
+    public string Model => Provider == Providers.Qingyan ? "qingyan-default" : "deepseek-default";
     public int Port { get; set; } = 22217;
     public string ApiKey { get; set; } = NewKey();
     public int HourlyQuota { get; set; } = 10;
@@ -31,8 +41,16 @@ public sealed class Settings
         if (ApiKey.Length < 24 || ApiKey.Any(c => c > 126 || c < 33)) throw new ArgumentException("API Key 至少 24 位，且只允许不含空格的 ASCII 字符。");
         if (HourlyQuota is < 1 or > 1000) throw new ArgumentException("每账号每小时请求上限须在 1–1000 之间。");
         if (ProxyUrl.Length > 0 && (!Uri.TryCreate(ProxyUrl, UriKind.Absolute, out var uri) || uri.Scheme is not ("http" or "https" or "socks5"))) throw new ArgumentException("代理地址应以 http://、https:// 或 socks5:// 开头。");
-        var enabled = Accounts.Where(a => a.Enabled).ToList();
-        if (requireAccount && enabled.Count == 0) throw new ArgumentException("请先添加并启用一个 DeepSeek 账号。");
+        if (Provider is not (Providers.DeepSeek or Providers.Qingyan) || Accounts.Any(a => a.Provider is not (Providers.DeepSeek or Providers.Qingyan))) throw new ArgumentException("不支持的服务平台。");
+        var enabled = Accounts.Where(a => a.Enabled && a.Provider == Provider).ToList();
+        if (requireAccount && enabled.Count == 0) throw new ArgumentException($"请先添加并启用一个{ProviderName}账号。");
+        if (Provider == Providers.Qingyan)
+        {
+            foreach (var a in enabled)
+                if (a.RefreshToken.Length < 16 || a.RefreshToken.Any(c => c < 33 || c > 126)) throw new ArgumentException($"账号「{a.Name}」需要有效的清言 refresh token（不含空格的 ASCII 字符）。");
+            if (enabled.Select(a => a.RefreshToken).Distinct().Count() != enabled.Count) throw new ArgumentException("启用的清言账号中存在重复 Token。");
+            return;
+        }
         foreach (var a in enabled)
         {
             if (string.IsNullOrWhiteSpace(a.Login) || string.IsNullOrWhiteSpace(a.Password) || string.IsNullOrWhiteSpace(a.DeviceId)) throw new ArgumentException($"账号「{a.Name}」需要登录名、密码和真实 device_id。");
@@ -65,7 +83,7 @@ public static class EngineConfig
         b.AppendLine($"\n[admin]\npassword_hash = \"!desktop-managed-disabled\"\njwt_secret = {Quote(adminSecret)}\njwt_issued_at = 0");
         b.AppendLine("\n[ds_core]\nmodel_types = [\"default\"]\nmodel_aliases = [\"deepseek-chat\"]");
         b.AppendLine($"hourly_request_quota = {settings.HourlyQuota}\ndefault_search_enabled = {settings.SearchEnabled.ToString().ToLowerInvariant()}");
-        foreach (var a in settings.Accounts.Where(a => a.Enabled))
+        foreach (var a in settings.Accounts.Where(a => a.Enabled && a.Provider == Providers.DeepSeek))
         {
             var isEmail = a.Login.Contains('@');
             b.AppendLine("\n[[ds_core.accounts]]");
@@ -94,7 +112,7 @@ public static class LogRedactor
 {
     public static string Redact(string line, Settings settings, string adminSecret)
     {
-        var secrets = settings.Accounts.SelectMany(a => new[] { a.Password, a.DeviceId, a.Login })
+        var secrets = settings.Accounts.SelectMany(a => new[] { a.Password, a.DeviceId, a.Login, a.RefreshToken })
             .Concat(new[] { settings.ApiKey, settings.ProxyUrl, adminSecret }).Where(s => s.Length > 0).OrderByDescending(s => s.Length);
         foreach (var secret in secrets) line = line.Replace(secret, "[已隐藏]", StringComparison.Ordinal);
         line = System.Text.RegularExpressions.Regex.Replace(line, @"\x1B\[[0-?]*[ -/]*[@-~]", "");

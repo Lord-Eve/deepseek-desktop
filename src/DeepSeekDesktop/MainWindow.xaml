@@ -29,13 +29,15 @@
      <ScrollViewer VerticalScrollBarVisibility="Auto">
       <StackPanel Margin="0,0,8,0">
        <TextBlock Text="服务概览" FontSize="27" FontWeight="SemiBold" Margin="0,0,0,6"/>
-       <TextBlock Text="把 DeepSeek 网页会话接到你熟悉的客户端。" Foreground="#7B879E" Margin="0,0,0,24"/>
+       <TextBlock Text="把 DeepSeek 或智谱清言接到你熟悉的客户端。" Foreground="#7B879E" Margin="0,0,0,16"/>
+       <TextBlock Text="当前服务平台（停止服务后可切换）" Style="{StaticResource Label}"/>
+       <ComboBox x:Name="ProviderBox" SelectedIndex="0" SelectionChanged="Provider_SelectionChanged" Margin="0,0,0,18" Padding="10,8"><ComboBoxItem Content="DeepSeek"/><ComboBoxItem Content="智谱清言"/></ComboBox>
        <Border Style="{StaticResource Card}">
         <StackPanel>
          <DockPanel><Border x:Name="StatusPill" Background="#EDF0F6" CornerRadius="8" Padding="12,5" DockPanel.Dock="Right"><TextBlock x:Name="ServiceStatus" Text="已停止"/></Border><TextBlock Text="本地 API 服务" FontSize="18" FontWeight="SemiBold" VerticalAlignment="Center"/></DockPanel>
          <TextBlock x:Name="ServiceDetail" Text="添加账号后，启动本地服务。" Foreground="#7B879E" Margin="0,12,0,18" TextWrapping="Wrap"/>
          <StackPanel Orientation="Horizontal"><Button x:Name="StartButton" Content="启动服务" Background="#4D6BFE" Foreground="White" Click="Start_Click"/><Button x:Name="StopButton" Content="停止服务" Click="Stop_Click" IsEnabled="False"/><Button x:Name="ProbeButton" Content="检查本地接口" Click="Probe_Click" IsEnabled="False"/></StackPanel>
-         <TextBlock Text="启动会登录启用账号，并发送后端自带的健康检查消息。" Foreground="#7B879E" FontSize="11" Margin="0,14,0,0" TextWrapping="Wrap"/>
+         <TextBlock x:Name="StartupHint" Text="DeepSeek 启动会登录启用账号，并发送后端自带的健康检查消息。" Foreground="#7B879E" FontSize="11" Margin="0,14,0,0" TextWrapping="Wrap"/>
         </StackPanel>
        </Border>
        <Border Style="{StaticResource Card}">
@@ -46,7 +48,7 @@
          <DockPanel><Button Content="复制地址" DockPanel.Dock="Right" Click="CopyUrl_Click" Margin="8,0,0,0"/><TextBox x:Name="EndpointBox" IsReadOnly="True" FontFamily="Consolas"/></DockPanel>
          <TextBlock Text="API Key" Style="{StaticResource Label}"/>
          <DockPanel><Button Content="复制 Key" DockPanel.Dock="Right" Click="CopyKey_Click" Margin="8,0,0,0"/><TextBox x:Name="ApiKeyBox" IsReadOnly="True" FontFamily="Consolas" TextWrapping="Wrap"/></DockPanel>
-         <TextBlock Text="模型：deepseek-default（网页端当前默认模式）" Margin="0,16,0,4"/>
+         <TextBlock x:Name="ModelHint" Text="模型：deepseek-default（网页端当前默认模式）" Margin="0,16,0,4"/>
          <TextBlock Text="适用于 Cherry Studio、AstrBot、Eve pet、tibo watch 的 OpenAI 兼容接入；实际兼容性需在本机验证。" Foreground="#7B879E" FontSize="11" TextWrapping="Wrap"/>
         </StackPanel>
        </Border>
@@ -55,25 +57,31 @@
         <Border Background="White" CornerRadius="10" Padding="18" Margin="0,0,8,0"><StackPanel><TextBlock Text="成功" Foreground="#7B879E"/><TextBlock x:Name="SuccessCount" Text="0" FontSize="26" Margin="0,6,0,0"/></StackPanel></Border>
         <Border Background="White" CornerRadius="10" Padding="18"><StackPanel><TextBlock Text="失败" Foreground="#7B879E"/><TextBlock x:Name="FailedCount" Text="0" FontSize="26" Margin="0,6,0,0"/></StackPanel></Border>
        </UniformGrid>
-       <Border Style="{StaticResource Card}"><StackPanel><DockPanel><Button x:Name="TestButton" Content="发送测试消息" Click="Test_Click" DockPanel.Dock="Right" IsEnabled="False"/><TextBlock Text="真实对话测试" FontSize="18" FontWeight="SemiBold" VerticalAlignment="Center"/></DockPanel><TextBlock Text="向 DeepSeek 发送“请仅回复：连接成功”，检查上游回复。" Foreground="#7B879E" Margin="0,12,0,10" TextWrapping="Wrap"/><TextBox x:Name="TestReply" Text="尚未测试" IsReadOnly="True" TextWrapping="Wrap" MaxHeight="140" VerticalScrollBarVisibility="Auto"/></StackPanel></Border>
+       <Border Style="{StaticResource Card}"><StackPanel><DockPanel><Button x:Name="TestButton" Content="发送测试消息" Click="Test_Click" DockPanel.Dock="Right" IsEnabled="False"/><TextBlock Text="真实对话测试" FontSize="18" FontWeight="SemiBold" VerticalAlignment="Center"/></DockPanel><TextBlock Text="向当前平台发送“请仅回复：连接成功”，检查上游回复。" Foreground="#7B879E" Margin="0,12,0,10" TextWrapping="Wrap"/><TextBox x:Name="TestReply" Text="尚未测试" IsReadOnly="True" TextWrapping="Wrap" MaxHeight="140" VerticalScrollBarVisibility="Auto"/></StackPanel></Border>
       </StackPanel>
      </ScrollViewer>
     </TabItem>
     <TabItem Header="账号管理">
      <ScrollViewer VerticalScrollBarVisibility="Auto"><StackPanel Margin="0,0,8,0">
       <TextBlock Text="账号管理" FontSize="27" FontWeight="SemiBold" Margin="0,0,0,6"/>
-      <TextBlock Text="停止服务后添加或修改账号。账号密码通过 Windows 加密保存。" Foreground="#7B879E" Margin="0,0,0,24" TextWrapping="Wrap"/>
+      <TextBlock Text="停止服务后添加或修改账号。账号凭据通过 Windows 加密保存。" Foreground="#7B879E" Margin="0,0,0,24" TextWrapping="Wrap"/>
       <Border Style="{StaticResource Card}"><StackPanel><TextBlock x:Name="AccountSummary" Text="0 个账号" FontSize="18" FontWeight="SemiBold"/><ListBox x:Name="AccountList" SelectionChanged="AccountList_SelectionChanged" MinHeight="80" MaxHeight="140" BorderThickness="0" Margin="0,14,0,12"/><StackPanel Orientation="Horizontal"><Button x:Name="NewAccountButton" Content="添加账号" Click="NewAccount_Click"/><Button x:Name="DeleteAccountButton" Content="删除选中账号" Click="DeleteAccount_Click"/></StackPanel></StackPanel></Border>
       <Border Style="{StaticResource Card}"><StackPanel x:Name="AccountEditor">
        <TextBlock x:Name="AccountEditorTitle" Text="添加账号" FontSize="18" FontWeight="SemiBold"/>
        <TextBlock Text="账号名称" Style="{StaticResource Label}"/><TextBox x:Name="AccountName" MaxLength="60"/>
+       <StackPanel x:Name="DeepSeekCredentials">
        <TextBlock Text="邮箱 / 中国大陆手机号（不含 +86）" Style="{StaticResource Label}"/><TextBox x:Name="AccountLogin" MaxLength="254"/>
        <TextBlock Text="登录密码（修改时留空保留原值）" Style="{StaticResource Label}"/><PasswordBox x:Name="AccountPassword" MaxLength="1024"/>
        <TextBlock Text="真实设备 device_id（修改时留空保留原值）" Style="{StaticResource Label}"/><PasswordBox x:Name="AccountDevice" MaxLength="8192"/>
+       </StackPanel>
+       <StackPanel x:Name="QingyanCredentials" Visibility="Collapsed">
+        <TextBlock Text="清言 refresh token（修改时留空保留原值）" Style="{StaticResource Label}"/><PasswordBox x:Name="AccountToken" MaxLength="16384"/>
+        <TextBlock Text="从已登录的 chatglm.cn 浏览器中获取 chatglm_refresh_token；不填写清言账号密码。" Foreground="#7B879E" TextWrapping="Wrap" Margin="0,8,0,0"/>
+       </StackPanel>
        <CheckBox x:Name="AccountEnabled" Content="启用这个账号" IsChecked="True" Margin="0,18,0,18"/>
-       <StackPanel Orientation="Horizontal"><Button Content="保存账号" Click="SaveAccount_Click" Background="#4D6BFE" Foreground="White"/><Button Content="如何获取 device_id" Click="DeviceHelp_Click"/></StackPanel>
+       <StackPanel Orientation="Horizontal"><Button Content="保存账号" Click="SaveAccount_Click" Background="#4D6BFE" Foreground="White"/><Button x:Name="CredentialHelpButton" Content="如何获取 device_id" Click="DeviceHelp_Click"/></StackPanel>
       </StackPanel></Border>
-      <TextBlock Text="网页接口可能随时变化，账号也可能受到上游限制。首版采用密码和真实设备信息登录，暂不提供自动浏览器登录或验证码处理。" Foreground="#7B879E" FontSize="12" TextWrapping="Wrap"/>
+      <TextBlock Text="这里只显示当前平台的账号，切换平台会保留另一平台的配置。网页接口可能变化，账号可能受到上游限制；不自动处理浏览器登录或验证码。" Foreground="#7B879E" FontSize="12" TextWrapping="Wrap"/>
      </StackPanel></ScrollViewer>
     </TabItem>
     <TabItem Header="连接设置">
