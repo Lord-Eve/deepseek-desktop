@@ -97,7 +97,7 @@ public partial class MainWindow : Window
         QingyanCredentials.Visibility = qingyan ? Visibility.Visible : Visibility.Collapsed;
         CredentialHelpButton.Content = qingyan ? "如何获取登录态" : "如何获取 device_id";
         ModelHint.Text = $"模型：{settings.Model}（网页端当前默认模式）";
-        StartupHint.Text = qingyan ? "清言启动仅刷新并校验登录态，不发送对话。当前支持文本多轮及流式回复；暂不支持工具调用和图片。" : "DeepSeek 启动会登录启用账号，并发送后端自带的健康检查消息。";
+        StartupHint.Text = qingyan ? "清言启动仅校验登录态，不发送对话。支持文本和工具调用兼容适配，MCP 由客户端执行；暂不支持图片。" : "DeepSeek 启动会登录启用账号，并发送后端自带的健康检查消息。";
         PortBox.Text = settings.Port.ToString(); QuotaBox.Text = settings.HourlyQuota.ToString(); ProxyBox.Text = settings.ProxyUrl;
         SearchEnabled.IsChecked = settings.SearchEnabled; EndpointBox.Text = settings.BaseUrl;
         ApiKeyBox.Text = settings.ApiKey;

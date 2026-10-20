@@ -9,6 +9,12 @@ using DeepSeekDesktop.Gateway;
 
 int checks = 0;
 void Check(bool value, string message) { checks++; if (!value) throw new Exception(message); }
+if (args.Length == 1 && args[0] == "--tools-only")
+{
+    await ToolBridgeChecks.RunAsync(Check);
+    Console.WriteLine($"PASS: {checks} Qingyan tool bridge and mock Exa loop checks (no real accounts)");
+    return;
+}
 int Port() { var listener = new TcpListener(IPAddress.Loopback, 0); listener.Start(); int port = ((IPEndPoint)listener.LocalEndpoint).Port; listener.Stop(); return port; }
 Settings SettingsFor(int quota = 30) => new() { Provider = Providers.Qingyan, Port = Port(), HourlyQuota = quota, Accounts = [new Account { Name = "本地模拟账号", Provider = Providers.Qingyan, RefreshToken = "fixture-refresh-only-0123456789" }] };
 var settings = SettingsFor();
@@ -127,6 +133,7 @@ await using (var occupied = new QingyanGateway(occupiedSettings, handler: occupi
     finally { occupiedPort.Stop(); }
     Check(rejected && occupiedUpstream.Refreshes == 0, "An occupied local port must fail before transmitting credentials.");
 }
+await ToolBridgeChecks.RunAsync(Check);
 Console.WriteLine($"PASS: {checks} Qingyan gateway and mock upstream checks (no real accounts)");
 
 sealed class FakeUpstream : HttpMessageHandler

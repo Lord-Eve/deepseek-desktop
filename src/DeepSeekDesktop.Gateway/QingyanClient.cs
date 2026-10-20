@@ -99,17 +99,23 @@ public sealed class QingyanClient(HttpClient http, Account account, Action<strin
         throw new UpstreamException(502, $"清言拒绝请求（业务代码 {number}）。请检查网页账号状态或协议是否变化。");
     }
 
-    public async IAsyncEnumerable<ChatDelta> ChatAsync(string prompt, bool search, [EnumeratorCancellation] CancellationToken cancellation)
+    public async IAsyncEnumerable<ChatDelta> ChatAsync(string prompt, bool search, [EnumeratorCancellation] CancellationToken cancellation, bool toolMode = false)
     {
         await CheckAsync(cancellation);
         string conversation = "";
         try
         {
+            var metadata = new Dictionary<string, object>
+            {
+                ["channel"] = "", ["draft_id"] = "", ["if_plus_model"] = true, ["input_question_type"] = "xxxx",
+                ["is_networking"] = search, ["is_test"] = false, ["platform"] = "pc", ["quote_log_id"] = "", ["cogview"] = new { rm_label_watermark = false }
+            };
+            if (toolMode) metadata["chat_mode"] = "zero";
             using var request = Request("/chatglm/backend-api/assistant/stream", access, new
             {
                 assistant_id = Assistant, conversation_id = "", project_id = "", chat_type = "user_chat",
                 messages = new[] { new { role = "user", content = new[] { new { type = "text", text = prompt } } } },
-                meta_data = new { channel = "", draft_id = "", if_plus_model = true, input_question_type = "xxxx", is_networking = search, is_test = false, platform = "pc", quote_log_id = "", cogview = new { rm_label_watermark = false } }
+                meta_data = metadata
             }, true);
             using var response = await http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellation);
             CheckHttp(response);
