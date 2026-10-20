@@ -1,7 +1,7 @@
 <Application x:Class="DeepSeekDesktop.App" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" StartupUri="MainWindow.xaml" ShutdownMode="OnExplicitShutdown">
  <Application.Resources>
   <SolidColorBrush x:Key="Accent" Color="#4D6BFE"/>
-  <Style TargetType="TextBlock"><Setter Property="Foreground" Value="#23304B"/></Style>
+  <Style TargetType="TextBlock"/>
   <Style TargetType="Button"><Setter Property="Padding" Value="16,9"/><Setter Property="Margin" Value="0,0,8,0"/><Setter Property="Background" Value="#EEF2FF"/><Setter Property="Foreground" Value="#344CC5"/><Setter Property="BorderThickness" Value="0"/><Setter Property="Cursor" Value="Hand"/><Setter Property="MinHeight" Value="36"/></Style>
   <Style TargetType="TextBox"><Setter Property="Padding" Value="10,8"/><Setter Property="BorderBrush" Value="#DDE3EF"/><Setter Property="BorderThickness" Value="1"/><Setter Property="VerticalContentAlignment" Value="Center"/></Style>
   <Style TargetType="PasswordBox"><Setter Property="Padding" Value="10,8"/><Setter Property="BorderBrush" Value="#DDE3EF"/></Style>

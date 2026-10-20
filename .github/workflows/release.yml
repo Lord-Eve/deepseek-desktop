@@ -1,4 +1,4 @@
-name: Release Windows baseline
+name: Release Windows desktop
 on:
   push:
     tags: ['v*']
@@ -45,5 +45,5 @@ jobs:
           if (!(Test-Path $notes)) { throw "Missing release notes: $notes" }
           $assets = @(Get-ChildItem dist -File | Where-Object { $_.Name -like '*.zip' -or $_.Name -like '*.sha256' } | ForEach-Object { $_.FullName })
           if ($assets.Count -ne 2) { throw 'Expected one ZIP and one SHA-256 file.' }
-          gh release create $tag @assets --repo $env:GITHUB_REPOSITORY --verify-tag --title "$tag - Windows desktop baseline" --notes-file $notes --prerelease
+          gh release create $tag @assets --repo $env:GITHUB_REPOSITORY --verify-tag --title "$tag - Windows desktop" --notes-file $notes --prerelease
           if ($LASTEXITCODE -ne 0) { throw 'Release publication failed.' }

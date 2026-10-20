@@ -44,4 +44,14 @@ if (args.Length == 2 && args[0] == "--fixture")
     s.ApiKey = "sk-local-fixture-only-01234567890123456789";
     File.WriteAllText(args[1], EngineConfig.Render(s, "fixture-admin-secret"), new UTF8Encoding(false));
 }
+using var unavailable = JsonDocument.Parse("""{"idle":0,"busy":0,"error":0,"invalid":1}""");
+Check(!PoolStatus.Parse(unavailable.RootElement).HasUsableAccount, "Listening with an invalid account must not imply chat readiness.");
+using var busyPool = JsonDocument.Parse("""{"idle":0,"busy":1,"error":0,"invalid":0}""");
+Check(PoolStatus.Parse(busyPool.RootElement).HasUsableAccount, "Busy accounts must not be classified as failed.");
+using var partialPool = JsonDocument.Parse("""{"idle":1,"busy":0,"error":1,"invalid":0}""");
+Check(PoolStatus.Parse(partialPool.RootElement).HasFailures && PoolStatus.Parse(partialPool.RootElement).HasUsableAccount, "Partial account failures must remain visible.");
+bool rejectedMissing = false;
+using var missingPool = JsonDocument.Parse("{}");
+try { PoolStatus.Parse(missingPool.RootElement); } catch (KeyNotFoundException) { rejectedMissing = true; }
+Check(rejectedMissing, "Missing status data must not be silently interpreted as zero.");
 Console.WriteLine($"PASS: {assertions} core checks");

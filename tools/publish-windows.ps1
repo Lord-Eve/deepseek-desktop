@@ -20,6 +20,8 @@ try {
     }
     python tests/engine_contract.py --engine engine/ds-free-api.exe --config $fixturePath
     if ($LASTEXITCODE -ne 0) { throw 'Real-engine protocol checks failed.' }
+    dotnet run --project tests/DeepSeekDesktop.UiChecks -c Release
+    if ($LASTEXITCODE -ne 0) { throw 'WPF UI checks failed.' }
     $packageName = 'DeepSeekDesktop-' + $version + '-win-x64'
     $outputDir = Join-Path $repoRoot ('dist/' + $packageName)
     if (Test-Path $outputDir) { Remove-Item $outputDir -Recurse -Force }

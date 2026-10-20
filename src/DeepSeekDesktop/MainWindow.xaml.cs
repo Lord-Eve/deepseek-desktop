@@ -27,6 +27,7 @@ public partial class MainWindow : Window
     private bool stopInProgress;
     private int editing = -1;
     private CancellationTokenSource? testCancellation;
+    private PoolStatus? poolStatus;
 
     public MainWindow()
     {
@@ -73,6 +74,7 @@ public partial class MainWindow : Window
     {
         PortBox.Text = settings.Port.ToString(); QuotaBox.Text = settings.HourlyQuota.ToString(); ProxyBox.Text = settings.ProxyUrl;
         SearchEnabled.IsChecked = settings.SearchEnabled; EndpointBox.Text = settings.BaseUrl;
+        ApiKeyBox.Text = settings.ApiKey;
     }
     private void LoadAccounts()
     {
@@ -104,20 +106,24 @@ public partial class MainWindow : Window
         StartButton.IsEnabled = !running && !busy && !stopInProgress;
         StopButton.IsEnabled = (running || busy) && !stopInProgress;
         ProbeButton.IsEnabled = ready && !busy && !stopInProgress;
-        TestButton.IsEnabled = ready && !busy && !stopInProgress && testCancellation == null;
+        TestButton.IsEnabled = ready && poolStatus?.HasUsableAccount == true && !busy && !stopInProgress && testCancellation == null;
         AccountEditor.IsEnabled = SettingsEditor.IsEnabled = NewAccountButton.IsEnabled = DeleteAccountButton.IsEnabled = !running && !busy && !stopInProgress;
-        ServiceStatus.Text = stopInProgress ? "停止中" : busy ? "正在启动" : ready ? "运行中" : running ? "初始化中" : "已停止";
-        StatusPill.Background = new SolidColorBrush(ready ? Color.FromRgb(225, 246, 236) : Color.FromRgb(237, 240, 246));
-        ServiceDetail.Text = ready ? "本地端口已就绪。可复制下方地址和 Key 到你的客户端。" : busy ? "正在连接上游并初始化账号，最长等待 3 分钟；可随时停止。" : "服务已停止，账号和连接设置可修改。";
+        ServiceStatus.Text = stopInProgress ? "停止中" : busy ? "正在启动" : ready ? poolStatus?.Title ?? "账号状态待确认" : running ? "初始化中" : "已停止";
+        StatusPill.Background = new SolidColorBrush(ready
+            ? poolStatus is { HasUsableAccount: true, HasFailures: false } ? Color.FromRgb(225, 246, 236) : Color.FromRgb(255, 237, 213)
+            : Color.FromRgb(237, 240, 246));
+        ServiceDetail.Text = ready ? poolStatus?.Detail ?? "本地端口已启动，账号状态尚未确认；请等待状态读取或查看日志。" : busy ? "正在连接上游并初始化账号，最长等待 3 分钟；可随时停止。" : "服务已停止，账号和连接设置可修改。";
         if (tray != null) tray.Text = "DeepSeek Desktop · " + ServiceStatus.Text;
     }
 
     private async void Start_Click(object sender, RoutedEventArgs e)
     {
+        poolStatus = null;
         busy = true; UpdateState(); TotalCount.Text = SuccessCount.Text = FailedCount.Text = "0";
-        try { await engine.StartAsync(settings); Tell("本地接口已就绪；可检查接口，或主动发送测试消息验证上游。"); }
+        try { await engine.StartAsync(settings); Tell("本地端口已启动，正在确认账号状态。"); }
         catch (Exception ex) { if (!quitting && !stopInProgress) Error(ex); }
         finally { busy = false; UpdateState(); }
+        await RefreshAsync();
     }
     private async Task StopServiceAsync()
     {
@@ -125,7 +131,7 @@ public partial class MainWindow : Window
         stopInProgress = true; testCancellation?.Cancel(); UpdateState();
         try { await engine.StopAsync(); Tell("服务已停止。"); }
         catch (Exception ex) { if (!quitting) Error(ex); }
-        finally { stopInProgress = false; UpdateState(); }
+        finally { poolStatus = null; stopInProgress = false; UpdateState(); }
     }
     private async void Stop_Click(object sender, RoutedEventArgs e) => await StopServiceAsync();
     private async void Probe_Click(object sender, RoutedEventArgs e)
@@ -146,7 +152,6 @@ public partial class MainWindow : Window
     {
         while (logs.TryDequeue(out var line)) LogsBox.AppendText($"[{DateTime.Now:HH:mm:ss}] {line}\n");
         if (LogsBox.Text.Length > 120000) { var text = LogsBox.Text; var cut = text.IndexOf('\n', text.Length - 90000); LogsBox.Text = cut >= 0 ? text[(cut + 1)..] : text[^90000..]; }
-        if (Pages.SelectedIndex == 3) LogsBox.ScrollToEnd();
         if (!busy && !stopInProgress && engine.IsReady && !engine.IsRunning)
         {
             try { await engine.StopAsync(); Tell("协议引擎已意外退出，运行配置已清理。请查看日志后重新启动。"); }
@@ -160,9 +165,15 @@ public partial class MainWindow : Window
             var stats = await engine.AdminAsync("stats");
             TotalCount.Text = Number(stats, "total_requests"); SuccessCount.Text = Number(stats, "success_requests"); FailedCount.Text = Number(stats, "failed_requests");
             var status = await engine.AdminAsync("status");
-            if (engine.IsRunning) ServiceDetail.Text = $"账号池：空闲 {Number(status, "idle")} · 忙碌 {Number(status, "busy")} · 错误 {Number(status, "error")} · 不可用 {Number(status, "invalid")}。本地端口已就绪。";
+            if (engine.IsRunning && !stopInProgress)
+            {
+                var next = PoolStatus.Parse(status);
+                if (poolStatus != next) Tell(next.Detail);
+                poolStatus = next;
+                UpdateState();
+            }
         }
-        catch (Exception) { if (engine.IsRunning && !stopInProgress) Tell("状态读取暂时失败，请检查本地接口或查看日志。"); }
+        catch (Exception) { if (engine.IsRunning && !stopInProgress) { poolStatus = null; UpdateState(); Tell("状态读取暂时失败，账号可用性尚未确认，请检查本地接口或查看日志。"); } }
         finally { polling = false; }
     }
     private static string Number(JsonElement e, string key) => e.TryGetProperty(key, out var value) ? value.ToString() : "0";
@@ -210,13 +221,23 @@ public partial class MainWindow : Window
         if (MessageBox.Show(this, "重新生成后，所有客户端都需要更新 API Key。继续？", "重新生成 API Key", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
         try { var candidate = Clone(); candidate.ApiKey = Settings.NewKey(); Save(candidate); Tell("新的 Key 已保存，可回到服务概览复制。"); } catch (Exception ex) { Error(ex); }
     }
-    private void Copy(string value, string notice)
+    private bool copying;
+    private async Task CopyAsync(string value, string notice)
     {
-        try { Clipboard.SetText(value); Tell(notice); } catch (Exception ex) { Error(ex); }
+        if (copying) { Tell("正在等待剪贴板，请稍候。"); return; }
+        copying = true;
+        try
+        {
+            Tell("正在复制…");
+            Tell(await ClipboardWriter.CopyAsync(value) ? notice :
+                "剪贴板正被其他程序占用，未能完成复制。请稍后重试，或暂时关闭剪贴板管理工具。");
+        }
+        catch (Exception) { Tell("复制未完成，请稍后重试。"); }
+        finally { copying = false; }
     }
-    private void CopyUrl_Click(object sender, RoutedEventArgs e) => Copy(settings.BaseUrl, "API 地址已复制。");
-    private void CopyKey_Click(object sender, RoutedEventArgs e) => Copy(settings.ApiKey, "API Key 已复制，请粘贴到客户端的 Key 设置中。");
-    private void CopyLogs_Click(object sender, RoutedEventArgs e) => Copy(LogsBox.Text, "日志已复制；对外分享前请检查是否含个人信息。");
+    private async void CopyUrl_Click(object sender, RoutedEventArgs e) => await CopyAsync(settings.BaseUrl, "API 地址已复制。");
+    private async void CopyKey_Click(object sender, RoutedEventArgs e) => await CopyAsync(settings.ApiKey, "API Key 已复制，请粘贴到客户端的 Key 设置中。");
+    private async void CopyLogs_Click(object sender, RoutedEventArgs e) => await CopyAsync(LogsBox.Text, "日志已复制；对外分享前请检查是否含个人信息。");
     private void ClearLogs_Click(object sender, RoutedEventArgs e) { logs.Clear(); LogsBox.Clear(); Tell("日志显示已清空。"); }
     private void OpenData_Click(object sender, RoutedEventArgs e) { try { Process.Start(new ProcessStartInfo(PrivateStorage.Root) { UseShellExecute = true }); } catch (Exception ex) { Error(ex); } }
     private void OpenReadme_Click(object sender, RoutedEventArgs e) { try { Process.Start(new ProcessStartInfo(Path.Combine(AppContext.BaseDirectory, "README.md")) { UseShellExecute = true }); } catch (Exception ex) { Error(ex); } }

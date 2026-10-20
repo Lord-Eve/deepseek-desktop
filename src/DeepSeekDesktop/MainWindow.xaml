@@ -15,7 +15,7 @@
     </StackPanel>
     <StackPanel DockPanel.Dock="Bottom" VerticalAlignment="Bottom">
      <TextBlock Text="仅在本机提供 API" Foreground="#A1B1CE" Margin="0,0,0,8"/>
-     <TextBlock Text="0.1.0 · 非官方客户端" Foreground="#7E90B1" FontSize="11" Margin="0,0,0,18"/>
+     <TextBlock Text="0.1.1 · 非官方客户端" Foreground="#7E90B1" FontSize="11" Margin="0,0,0,18"/>
      <Button Content="退出程序" Click="Exit_Click" Background="#223353" Foreground="#CBD5EC" Margin="0"/>
     </StackPanel>
    </DockPanel>
@@ -44,7 +44,7 @@
          <TextBlock Text="API 地址 / Base URL" Style="{StaticResource Label}"/>
          <DockPanel><Button Content="复制地址" DockPanel.Dock="Right" Click="CopyUrl_Click" Margin="8,0,0,0"/><TextBox x:Name="EndpointBox" IsReadOnly="True" FontFamily="Consolas"/></DockPanel>
          <TextBlock Text="API Key" Style="{StaticResource Label}"/>
-         <DockPanel><Button Content="复制 Key" DockPanel.Dock="Right" Click="CopyKey_Click" Margin="8,0,0,0"/><TextBox Text="••••••••••••••••••••••••" IsReadOnly="True" FontFamily="Consolas"/></DockPanel>
+         <DockPanel><Button Content="复制 Key" DockPanel.Dock="Right" Click="CopyKey_Click" Margin="8,0,0,0"/><TextBox x:Name="ApiKeyBox" IsReadOnly="True" FontFamily="Consolas" TextWrapping="Wrap"/></DockPanel>
          <TextBlock Text="模型：deepseek-default（网页端当前默认模式）" Margin="0,16,0,4"/>
          <TextBlock Text="适用于 Cherry Studio、AstrBot、Eve pet、tibo watch 的 OpenAI 兼容接入；实际兼容性需在本机验证。" Foreground="#7B879E" FontSize="11" TextWrapping="Wrap"/>
         </StackPanel>
@@ -88,13 +88,13 @@
        <CheckBox x:Name="SearchEnabled" Content="未指定搜索选项时默认开启联网搜索" Margin="0,18,0,18"/>
        <StackPanel Orientation="Horizontal"><Button Content="保存设置" Click="SaveSettings_Click" Background="#4D6BFE" Foreground="White"/><Button Content="重新生成 API Key" Click="RegenerateKey_Click"/></StackPanel>
       </StackPanel></Border>
-      <Border Style="{StaticResource Card}"><StackPanel><TextBlock Text="数据与版本" FontSize="18" FontWeight="SemiBold"/><TextBlock Text="桌面端 0.1.0 · 协议引擎 ds-free-api v0.5.1" Margin="0,14,0,8"/><TextBlock Text="账号和 API Key 使用当前 Windows 用户的 DPAPI 加密保存。服务运行时，引擎需要临时明文配置；目录限制为当前用户访问，停止后删除。" Foreground="#7B879E" TextWrapping="Wrap"/><TextBlock Text="关闭窗口会收起到托盘；点击“退出程序”会停止本地服务。" Margin="0,14,0,14" TextWrapping="Wrap"/><StackPanel Orientation="Horizontal"><Button Content="打开数据目录" Click="OpenData_Click"/><Button Content="使用说明" Click="OpenReadme_Click"/></StackPanel></StackPanel></Border>
+      <Border Style="{StaticResource Card}"><StackPanel><TextBlock Text="数据与版本" FontSize="18" FontWeight="SemiBold"/><TextBlock Text="桌面端 0.1.1 · 协议引擎 ds-free-api v0.5.1" Margin="0,14,0,8"/><TextBlock Text="账号和 API Key 使用当前 Windows 用户的 DPAPI 加密保存。服务运行时，引擎需要临时明文配置；目录限制为当前用户访问，停止后删除。" Foreground="#7B879E" TextWrapping="Wrap"/><TextBlock Text="关闭窗口会收起到托盘；点击“退出程序”会停止本地服务。" Margin="0,14,0,14" TextWrapping="Wrap"/><StackPanel Orientation="Horizontal"><Button Content="打开数据目录" Click="OpenData_Click"/><Button Content="使用说明" Click="OpenReadme_Click"/></StackPanel></StackPanel></Border>
      </StackPanel></ScrollViewer>
     </TabItem>
     <TabItem Header="运行日志">
      <Grid Margin="0,0,8,0"><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
       <StackPanel Margin="0,0,0,20"><TextBlock Text="运行日志" FontSize="27" FontWeight="SemiBold" Margin="0,0,0,6"/><TextBlock Text="显示当前会话的后端输出，已隐藏已知凭据。" Foreground="#7B879E" Margin="0,0,0,16"/><StackPanel Orientation="Horizontal"><Button Content="清空显示" Click="ClearLogs_Click"/><Button Content="复制日志" Click="CopyLogs_Click"/></StackPanel></StackPanel>
-      <TextBox x:Name="LogsBox" Grid.Row="1" IsReadOnly="True" AcceptsReturn="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" FontFamily="Consolas, Microsoft YaHei UI" FontSize="12" Background="#17233D" Foreground="#C9D6EE" BorderThickness="0" Padding="18"/>
+      <TextBox x:Name="LogsBox" Grid.Row="1" IsReadOnly="True" AcceptsReturn="True" TextWrapping="Wrap" VerticalContentAlignment="Top" VerticalScrollBarVisibility="Auto" FontFamily="Consolas, Microsoft YaHei UI" FontSize="12" Background="#17233D" Foreground="#C9D6EE" BorderThickness="0" Padding="18"/>
      </Grid>
     </TabItem>
    </TabControl>
