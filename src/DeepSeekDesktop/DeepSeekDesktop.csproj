@@ -4,7 +4,7 @@
     <UseWPF>true</UseWPF><UseWindowsForms>true</UseWindowsForms><EnableWindowsTargeting>true</EnableWindowsTargeting>
     <ImplicitUsings>disable</ImplicitUsings><Nullable>enable</Nullable><TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
-    <Version>0.1.2</Version><AssemblyName>DeepSeekDesktop</AssemblyName><ApplicationManifest>app.manifest</ApplicationManifest>
+    <Version>0.1.3</Version><AssemblyName>DeepSeekDesktop</AssemblyName><ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>Assets/deepseek-whale-girl.ico</ApplicationIcon>
   </PropertyGroup>
   <ItemGroup><ProjectReference Include="../DeepSeekDesktop.Core/DeepSeekDesktop.Core.csproj" /></ItemGroup>

@@ -11,6 +11,12 @@ internal static class Program
     [STAThread]
     private static void Main(string[] args)
     {
+        if (args.Length == 1 && args[0] == "--check-updates")
+        {
+            var release = UpdateChecker.CheckAsync().GetAwaiter().GetResult();
+            Console.WriteLine($"PASS: live private-repository update check; latest {release.Version}");
+            return;
+        }
         var app = new App();
         app.InitializeComponent();
         // Do not Show or run the dispatcher: Loaded would access real user settings.
@@ -37,6 +43,10 @@ internal static class Program
             "Sidebar version must match the compiled product version.");
         Check(((TextBlock)window.FindName("VersionDetail")).Text == $"桌面端 {version.ProductVersion!.Split('+')[0]} · 协议引擎 ds-free-api v0.5.1",
             "Settings version must match the compiled product version.");
+        Check(((Button)window.FindName("CheckUpdatesButton")).IsEnabled && ((Button)window.FindName("DownloadUpdateButton")).IsEnabled,
+            "Update check and browser download entries must be available without starting the service.");
+        Check(((Button)window.FindName("SidebarUpdateButton")).Visibility == Visibility.Collapsed,
+            "The new-version banner must stay hidden until a newer release is confirmed.");
         Check(window.Icon is BitmapFrame frame && frame.PixelWidth > 0, "Window icon must load from the application resources.");
         using (var resource = Application.GetResourceStream(new Uri("pack://application:,,,/DeepSeekDesktop;component/Assets/deepseek-whale-girl.ico")).Stream)
         {

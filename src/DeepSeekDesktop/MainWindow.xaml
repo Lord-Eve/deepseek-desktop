@@ -16,6 +16,7 @@
     <StackPanel DockPanel.Dock="Bottom" VerticalAlignment="Bottom">
      <TextBlock Text="仅在本机提供 API" Foreground="#A1B1CE" Margin="0,0,0,8"/>
      <TextBlock x:Name="VersionLabel" Text="{Binding Source={x:Static local:App.Version}, StringFormat={}{0} · 非官方客户端}" Foreground="#7E90B1" FontSize="11" Margin="0,0,0,18"/>
+     <Button x:Name="SidebarUpdateButton" Content="发现新版，查看更新" Click="ShowUpdates_Click" Visibility="Collapsed" FontSize="11" Padding="6,8" Margin="0,0,0,10"/>
      <Button Content="退出程序" Click="Exit_Click" Background="#223353" Foreground="#CBD5EC" Margin="0"/>
     </StackPanel>
    </DockPanel>
@@ -88,7 +89,12 @@
        <CheckBox x:Name="SearchEnabled" Content="未指定搜索选项时默认开启联网搜索" Margin="0,18,0,18"/>
        <StackPanel Orientation="Horizontal"><Button Content="保存设置" Click="SaveSettings_Click" Background="#4D6BFE" Foreground="White"/><Button Content="重新生成 API Key" Click="RegenerateKey_Click"/></StackPanel>
       </StackPanel></Border>
-      <Border Style="{StaticResource Card}"><StackPanel><TextBlock Text="数据与版本" FontSize="18" FontWeight="SemiBold"/><TextBlock x:Name="VersionDetail" Text="{Binding Source={x:Static local:App.Version}, StringFormat=桌面端 {0} · 协议引擎 ds-free-api v0.5.1}" Margin="0,14,0,8"/><TextBlock Text="账号和 API Key 使用当前 Windows 用户的 DPAPI 加密保存。服务运行时，引擎需要临时明文配置；目录限制为当前用户访问，停止后删除。" Foreground="#7B879E" TextWrapping="Wrap"/><TextBlock Text="关闭窗口会静默收起到托盘；点击“退出程序”会停止本地服务。" Margin="0,14,0,14" TextWrapping="Wrap"/><StackPanel Orientation="Horizontal"><Button Content="打开数据目录" Click="OpenData_Click"/><Button Content="使用说明" Click="OpenReadme_Click"/></StackPanel></StackPanel></Border>
+      <Border Style="{StaticResource Card}"><StackPanel><TextBlock Text="数据与版本" FontSize="18" FontWeight="SemiBold"/><TextBlock x:Name="VersionDetail" Text="{Binding Source={x:Static local:App.Version}, StringFormat=桌面端 {0} · 协议引擎 ds-free-api v0.5.1}" Margin="0,14,0,8"/>
+       <TextBlock x:Name="UpdateStatus" Text="启动时检查新版，也可手动检查。" Foreground="#64748B" TextWrapping="Wrap" Margin="0,4,0,10"/>
+       <StackPanel Orientation="Horizontal"><Button x:Name="CheckUpdatesButton" Content="检查更新" Click="CheckUpdates_Click"/><Button x:Name="DownloadUpdateButton" Content="前往下载页" Click="DownloadUpdate_Click"/></StackPanel>
+       <TextBlock Text="自动检查使用本机 GitHub CLI 登录状态访问私有仓库；下载页需登录有权限的 GitHub 账号。" Foreground="#7B879E" FontSize="11" TextWrapping="Wrap" Margin="0,10,0,14"/>
+       <TextBlock Text="升级时退出旧程序，解压完整新版后运行。同一 Windows 用户下保留账号、API Key 和连接设置。" Foreground="#7B879E" TextWrapping="Wrap" Margin="0,0,0,14"/>
+       <TextBlock Text="账号和 API Key 使用当前 Windows 用户的 DPAPI 加密保存。服务运行时，引擎需要临时明文配置；目录限制为当前用户访问，停止后删除。" Foreground="#7B879E" TextWrapping="Wrap"/><TextBlock Text="关闭窗口会静默收起到托盘；点击“退出程序”会停止本地服务。" Margin="0,14,0,14" TextWrapping="Wrap"/><StackPanel Orientation="Horizontal"><Button Content="打开数据目录" Click="OpenData_Click"/><Button Content="使用说明" Click="OpenReadme_Click"/></StackPanel></StackPanel></Border>
      </StackPanel></ScrollViewer>
     </TabItem>
     <TabItem Header="运行日志">

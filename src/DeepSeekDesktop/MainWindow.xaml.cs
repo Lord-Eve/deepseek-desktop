@@ -29,6 +29,9 @@ public partial class MainWindow : Window
     private int editing = -1;
     private CancellationTokenSource? testCancellation;
     private PoolStatus? poolStatus;
+    private readonly CancellationTokenSource updateCancellation = new();
+    private bool checkingUpdates, startupUpdateChecked;
+    private string updatePageUrl = UpdateFeed.ReleasesUrl;
 
     public MainWindow()
     {
@@ -52,6 +55,7 @@ public partial class MainWindow : Window
             }
             initialized = true;
             LoadSettings(); LoadAccounts(); ResetAccount(); SetupTray(); UpdateState(); timer.Start();
+            if (!startupUpdateChecked) { startupUpdateChecked = true; _ = CheckForUpdatesAsync(); }
         }
         catch (Exception ex)
         {
@@ -245,6 +249,39 @@ public partial class MainWindow : Window
     private void ClearLogs_Click(object sender, RoutedEventArgs e) { logs.Clear(); LogsBox.Clear(); Tell("日志显示已清空。"); }
     private void OpenData_Click(object sender, RoutedEventArgs e) { try { Process.Start(new ProcessStartInfo(PrivateStorage.Root) { UseShellExecute = true }); } catch (Exception ex) { Error(ex); } }
     private void OpenReadme_Click(object sender, RoutedEventArgs e) { try { Process.Start(new ProcessStartInfo(Path.Combine(AppContext.BaseDirectory, "README.md")) { UseShellExecute = true }); } catch (Exception ex) { Error(ex); } }
+    private async void CheckUpdates_Click(object sender, RoutedEventArgs e) => await CheckForUpdatesAsync();
+    private async Task CheckForUpdatesAsync()
+    {
+        if (checkingUpdates || quitting) return;
+        checkingUpdates = true; CheckUpdatesButton.IsEnabled = false;
+        UpdateStatus.Text = "正在检查更新…";
+        try
+        {
+            var release = await UpdateChecker.CheckAsync(updateCancellation.Token);
+            if (quitting) return;
+            bool newer = release.Version > Version.Parse(App.Version);
+            updatePageUrl = newer ? release.PageUrl : UpdateFeed.ReleasesUrl;
+            UpdateStatus.Text = newer ? $"发现新版本 {release.Version}，当前为 {App.Version}。点击“前往下载页”查看更新。" : $"当前 {App.Version} 已是最新版本。";
+            SidebarUpdateButton.Visibility = newer ? Visibility.Visible : Visibility.Collapsed;
+        }
+        catch (OperationCanceledException) when (quitting) { }
+        catch (Exception ex)
+        {
+            if (!quitting) UpdateStatus.Text = ex is InvalidOperationException or TimeoutException or InvalidDataException
+                ? ex.Message : "未能读取更新信息，请稍后重试或前往下载页查看。";
+        }
+        finally { checkingUpdates = false; if (!quitting) CheckUpdatesButton.IsEnabled = true; }
+    }
+    private void ShowUpdates_Click(object sender, RoutedEventArgs e)
+    {
+        Pages.SelectedIndex = 2;
+        UpdateStatus.BringIntoView();
+    }
+    private void DownloadUpdate_Click(object sender, RoutedEventArgs e)
+    {
+        try { Process.Start(new ProcessStartInfo(updatePageUrl) { UseShellExecute = true }); }
+        catch (Exception) { Tell("无法打开浏览器，请访问 GitHub 仓库的 Releases 页面下载新版。"); }
+    }
     private void DeviceHelp_Click(object sender, RoutedEventArgs e)
     {
         MessageBox.Show(this, "本版本需要已有 DeepSeek 账号的真实 device_id。\n\n在浏览器登录 chat.deepseek.com，开发者工具 → Network 中查看 users/login 请求体里的 device_id。每个账号分别获取。\n\n上游接口可能改变；若找不到该字段或登录触发验证码，本版本暂无法自动处理。不要把密码、Token 或 device_id 发到聊天或公开 Issue。\n\n更完整步骤见发布包的 README.md。", "设备信息", MessageBoxButton.OK, MessageBoxImage.Information);
@@ -258,7 +295,7 @@ public partial class MainWindow : Window
     private async Task QuitAsync()
     {
         if (quitting) return;
-        quitting = true; timer.Stop(); testCancellation?.Cancel();
+        quitting = true; timer.Stop(); testCancellation?.Cancel(); updateCancellation.Cancel();
         try { if (initialized) await engine.StopAsync(); }
         catch (Exception) { MessageBox.Show(this, "退出时未能完成运行文件清理，下次启动将再次尝试清理。", "DeepSeek Desktop", MessageBoxButton.OK, MessageBoxImage.Information); }
         finally { tray?.Dispose(); trayIcon?.Dispose(); engine.Dispose(); Application.Current.Shutdown(); }

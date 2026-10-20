@@ -54,4 +54,19 @@ bool rejectedMissing = false;
 using var missingPool = JsonDocument.Parse("{}");
 try { PoolStatus.Parse(missingPool.RootElement); } catch (KeyNotFoundException) { rejectedMissing = true; }
 Check(rejectedMissing, "Missing status data must not be silently interpreted as zero.");
+string Release(string tag, bool draft = false, bool package = true) => JsonSerializer.Serialize(new
+{
+    tag_name = tag, draft, prerelease = true, html_url = "https://untrusted.example/",
+    assets = package ? new[] { new { name = $"DeepSeekDesktop-{tag[1..]}-win-x64.zip" } } : []
+});
+var latest = UpdateFeed.Latest("[" + string.Join(',', Release("v0.2.9"), Release("v0.2.10"), Release("v9.0.0", draft: true), Release("v8.0.0", package: false), Release("vbad")) + "]");
+Check(latest.Version == new Version(0, 2, 10), "Update checks must compare numeric versions and skip drafts, missing packages and malformed tags.");
+Check(latest.PageUrl == UpdateFeed.ReleasesUrl + "/tag/v0.2.10", "Update links must stay on the project's trusted GitHub release page.");
+Check(UpdateFeed.Latest("[" + Release("v0.1.3") + "]").Version == new Version(0, 1, 3), "Published preview releases must be discoverable.");
+bool missingRelease = false;
+try { _ = UpdateFeed.Latest("[" + Release("v9.0.0", draft: true) + "]"); } catch (InvalidDataException) { missingRelease = true; }
+Check(missingRelease, "An empty compatible release feed must not claim the app is up to date.");
+bool invalidFeed = false;
+try { _ = UpdateFeed.Latest("{}"); } catch (InvalidDataException) { invalidFeed = true; }
+Check(invalidFeed, "An API error object must not be interpreted as a release list.");
 Console.WriteLine($"PASS: {assertions} core checks");
