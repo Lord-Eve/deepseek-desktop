@@ -23,16 +23,46 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 20
     steps:
+      - name: Check existing release
+        id: release-state
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $tag = $env:RELEASE_TAG
+          if ($tag -notmatch '^v\d+\.\d+\.\d+$') { throw 'Expected an existing numeric version tag.' }
+          $zipName = "DeepSeekDesktop-$($tag.Substring(1))-win-x64.zip"
+          $headers = @{ Authorization = "Bearer $env:GH_TOKEN"; Accept = 'application/vnd.github+json' }
+          $uri = "$env:GITHUB_API_URL/repos/$env:GITHUB_REPOSITORY/releases/tags/$tag"
+          $release = $null
+          try {
+            $release = Invoke-RestMethod -Uri $uri -Headers $headers
+          } catch {
+            if ([int]$_.Exception.Response.StatusCode -ne 404) { throw }
+          }
+          if ($release -and $release.draft) { throw "Release $tag is a draft; review it before publishing." }
+          $complete = $false
+          if ($release) {
+            $names = @($release.assets | Where-Object { $_.size -gt 0 } | ForEach-Object { $_.name })
+            $complete = $zipName -in $names -and "$zipName.sha256" -in $names
+          }
+          "complete=$($complete.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
+          if ($complete) { Write-Host "Release $tag already has both assets; nothing to publish." }
       - uses: actions/checkout@v7
+        if: steps.release-state.outputs.complete != 'true'
         with:
           ref: ${{ inputs.tag || github.ref }}
       - uses: actions/setup-dotnet@v6
+        if: steps.release-state.outputs.complete != 'true'
         with:
           dotnet-version: 8.0.x
       - uses: actions/setup-python@v7
+        if: steps.release-state.outputs.complete != 'true'
         with:
           python-version: '3.12'
       - name: Verify tag, test, and build
+        if: steps.release-state.outputs.complete != 'true'
         shell: powershell
         run: |
           if ($env:RELEASE_TAG -notmatch '^v\d+\.\d+\.\d+$') { throw 'Expected an existing numeric version tag.' }
@@ -41,6 +71,7 @@ jobs:
           $version = $env:RELEASE_TAG.Substring(1)
           ./tools/publish-windows.ps1 -ExpectedVersion $version
       - uses: actions/upload-artifact@v7
+        if: steps.release-state.outputs.complete != 'true'
         with:
           name: release-win-x64
           if-no-files-found: error
@@ -48,14 +79,73 @@ jobs:
             dist/*.zip
             dist/*.sha256
       - name: Publish prerelease
+        if: steps.release-state.outputs.complete != 'true'
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          $ErrorActionPreference = 'Stop'
           $tag = $env:RELEASE_TAG
           $notes = "docs/releases/$tag.md"
           if (!(Test-Path $notes)) { throw "Missing release notes: $notes" }
           $assets = @(Get-ChildItem dist -File | Where-Object { $_.Name -like '*.zip' -or $_.Name -like '*.sha256' } | ForEach-Object { $_.FullName })
           if ($assets.Count -ne 2) { throw 'Expected one ZIP and one SHA-256 file.' }
-          gh release create $tag @assets --repo $env:GITHUB_REPOSITORY --verify-tag --title "$tag - Windows desktop" --notes-file $notes --prerelease
-          if ($LASTEXITCODE -ne 0) { throw 'Release publication failed.' }
+          $zipName = "DeepSeekDesktop-$($tag.Substring(1))-win-x64.zip"
+          $hashName = "$zipName.sha256"
+          $zipPath = Join-Path 'dist' $zipName
+          $hashPath = Join-Path 'dist' $hashName
+          if (!(Test-Path $zipPath) -or !(Test-Path $hashPath)) { throw 'Unexpected release asset names.' }
+          $headers = @{ Authorization = "Bearer $env:GH_TOKEN"; Accept = 'application/vnd.github+json' }
+          $uri = "$env:GITHUB_API_URL/repos/$env:GITHUB_REPOSITORY/releases/tags/$tag"
+          function Get-ExistingRelease {
+            try {
+              Invoke-RestMethod -Uri $uri -Headers $headers
+            } catch {
+              if ([int]$_.Exception.Response.StatusCode -ne 404) { throw }
+            }
+          }
+          $release = Get-ExistingRelease
+          if (!$release) {
+            gh release create $tag @assets --repo $env:GITHUB_REPOSITORY --verify-tag --title "$tag - Windows desktop" --notes-file $notes --prerelease
+            if ($LASTEXITCODE -eq 0) { return }
+            # Another publisher may have created the release, or an asset upload may have failed.
+            $release = Get-ExistingRelease
+            if (!$release) { throw 'Release publication failed.' }
+          }
+          if ($release.draft) { throw "Release $tag is a draft; review it before publishing." }
+          $existing = @($release.assets | ForEach-Object { $_.name })
+          $invalid = @($release.assets | Where-Object { $_.name -in @($zipName, $hashName) -and $_.size -le 0 })
+          if ($invalid.Count) { throw 'An existing release asset is empty; review it instead of overwriting it.' }
+          if ($zipName -in $existing -and $hashName -in $existing) {
+            Write-Host "Release $tag already has both assets; nothing to publish."
+            $global:LASTEXITCODE = 0
+            return
+          }
+          $tempDir = Join-Path $env:RUNNER_TEMP ('release-repair-' + [Guid]::NewGuid().ToString('N'))
+          New-Item $tempDir -ItemType Directory | Out-Null
+          try {
+            if ($zipName -in $existing) {
+              # Hash the published ZIP, since a rebuild can produce different ZIP bytes.
+              gh release download $tag --repo $env:GITHUB_REPOSITORY --pattern $zipName --dir $tempDir
+              if ($LASTEXITCODE -ne 0) { throw 'Could not download the published ZIP to restore its checksum.' }
+              $hash = (Get-FileHash (Join-Path $tempDir $zipName) -Algorithm SHA256).Hash.ToLowerInvariant()
+              $hashPath = Join-Path $tempDir $hashName
+              [IO.File]::WriteAllText($hashPath, "$hash  $zipName`n", [Text.UTF8Encoding]::new($false))
+              $missing = @($hashPath)
+            } elseif ($hashName -in $existing) {
+              gh release download $tag --repo $env:GITHUB_REPOSITORY --pattern $hashName --dir $tempDir
+              if ($LASTEXITCODE -ne 0) { throw 'Could not download the published checksum.' }
+              $checksum = [IO.File]::ReadAllText((Join-Path $tempDir $hashName)).Trim()
+              $hash = (Get-FileHash $zipPath -Algorithm SHA256).Hash.ToLowerInvariant()
+              if ($checksum -cne "$hash  $zipName") { throw 'The rebuilt ZIP does not match the published checksum; existing assets were preserved. Recover the original ZIP from the build artifacts.' }
+              $missing = @($zipPath)
+            } else {
+              $missing = @($zipPath, $hashPath)
+            }
+            # Never replace assets that users may already have downloaded.
+            gh release upload $tag @missing --repo $env:GITHUB_REPOSITORY
+            if ($LASTEXITCODE -ne 0) { throw 'Missing release asset upload failed.' }
+          } finally {
+            Remove-Item $tempDir -Recurse -Force
+          }
+

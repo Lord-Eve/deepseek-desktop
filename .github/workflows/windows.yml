@@ -25,6 +25,9 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
+      - name: Check release workflow behavior
+        shell: pwsh
+        run: ./tests/release-workflow-checks.ps1
       - name: Build, check native behavior, and package
         shell: powershell
         run: ./tools/publish-windows.ps1
@@ -36,3 +39,4 @@ jobs:
           path: |
             dist/*.zip
             dist/*.sha256
+
