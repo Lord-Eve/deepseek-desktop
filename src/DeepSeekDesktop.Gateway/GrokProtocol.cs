@@ -163,7 +163,13 @@ public static class GrokProtocol
     private static JsonObject Rewrite(JsonObject request)
     {
         string model = request["model"]!.ToString();
-        if (model is "grok-build" or "grok-composer-2.5-fast") request.Remove("reasoning");
+        if (model is "grok-build" or "grok-composer-2.5-fast" or "grok-4.20-0309-reasoning") request.Remove("reasoning");
+        else if (request["reasoning"] is JsonObject reasoning && reasoning["effort"] != null)
+        {
+            string effort = reasoning["effort"]!.ToString();
+            bool allowed = effort is "low" or "medium" or "high" || model == "grok-4.7" && effort == "xhigh";
+            if (!allowed) throw new ArgumentException($"{model} 不支持指定的 reasoning.effort；该模型不能关闭思考，请使用 low、medium、high" + (model == "grok-4.7" ? " 或 xhigh。" : "。"));
+        }
         request["stream"] = true; request["store"] = false;
         var include = request["include"] as JsonArray ?? new JsonArray();
         if (!include.Any(v => v?.ToString() == "reasoning.encrypted_content")) include.Add("reasoning.encrypted_content");

@@ -96,6 +96,20 @@ JsonArray InitialMessages(string question = "请用 Exa 搜索鲸鱼资料") => 
 JsonObject ChatRequest(bool stream = false, JsonArray? messages = null) => new() { ["model"] = "grok-build", ["messages"] = messages ?? InitialMessages(), ["tools"] = toolDefinitions.DeepClone(), ["stream"] = stream };
 JsonElement Element(JsonNode value) => JsonSerializer.SerializeToElement(value);
 var replay = new GrokReplayCache();
+var unsupportedEffort = JsonNode.Parse("""{"model":"grok-4.7","messages":[{"role":"user","content":"请仅回复：连接成功"}],"reasoning_effort":"none"}""")!.AsObject();
+BadRequest(() => GrokProtocol.Chat(Element(unsupportedEffort), replay), "Grok 4.7 cannot disable reasoning; reject the inherited DeepSeek none setting locally.");
+unsupportedEffort["reasoning_effort"] = "low";
+Check(GrokProtocol.Chat(Element(unsupportedEffort), replay)["reasoning"]?["effort"]?.ToString() == "low", "Grok 4.7 must retain a valid low-effort test request.");
+unsupportedEffort["model"] = "grok-4.20-0309-reasoning";
+Check(GrokProtocol.Chat(Element(unsupportedEffort), replay)["reasoning"] == null, "Fixed-reasoning Grok models must not receive unsupported effort controls.");
+var parameterFailure = new FakeGrok { Mode = "bad-param" };
+using (var failedHttp = new HttpClient(parameterFailure))
+{
+    bool classified = false;
+    try { await foreach (var frame in new GrokClient(failedHttp, FixtureAccount()).EventsAsync(GrokProtocol.Chat(Element(unsupportedEffort), replay), default)) { } }
+    catch (UpstreamException ex) { classified = ex.Status == 400 && ex.Message.Contains("param=reasoning.effort") && ex.Message.Contains("invalid_argument") && !ex.Message.Contains("fixture-secret") && !ex.Message.Contains("private prompt"); }
+    Check(classified && parameterFailure.Requests == 1 && parameterFailure.Refreshes == 0, "Upstream parameter errors must preserve HTTP 400 with safe fields, without leaking raw messages, refreshing or retrying.");
+}
 var prepared = GrokProtocol.Chat(Element(ChatRequest()), replay);
 Check(prepared["instructions"]?.ToString() == "使用搜索结果回答" && prepared["input"]!.AsArray().Count == 1 && prepared["tools"]![0]!["name"]?.ToString() == "mcp__exa__web_search_exa" && prepared["tools"]![0]!["function"] == null, "Chat messages and nested tools must be converted to native Responses without prompt simulation.");
 Check(prepared["store"]!.GetValue<bool>() == false && prepared["include"]!.AsArray().Any(v => v?.ToString() == "reasoning.encrypted_content"), "The proxy request must ask for encrypted reasoning and disable remote storage.");
@@ -224,6 +238,7 @@ sealed class FakeGrok : HttpMessageHandler
         if (Mode == "wait") await Task.Delay(Timeout.InfiniteTimeSpan, cancellation);
         if (Mode == "rate") return new(HttpStatusCode.TooManyRequests) { Content = new StringContent("do not expose token or raw quota error") };
         if (Mode == "denied") return new(HttpStatusCode.Forbidden);
+        if (Mode == "bad-param") return new(HttpStatusCode.BadRequest) { Content = new StringContent("""{"error":{"code":"invalid_argument","param":"reasoning.effort","message":"fixture-secret and private prompt must not leak"}}""", Encoding.UTF8, "application/json") };
         if (Mode == "unauthorized-once" && !returnedUnauthorized) { returnedUnauthorized = true; return new(HttpStatusCode.Unauthorized); }
         LastBody = await request.Content!.ReadAsStringAsync(cancellation);
         var parsed = JsonNode.Parse(LastBody)!;

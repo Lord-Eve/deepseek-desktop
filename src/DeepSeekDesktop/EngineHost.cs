@@ -187,15 +187,35 @@ internal sealed class EngineHost : IDisposable
     public async Task<string> SendTestAsync(CancellationToken cancellation)
     {
         using var request = Request(HttpMethod.Post, "/v1/chat/completions");
-        request.Content = JsonContent.Create(new { model = active!.Model, messages = new[] { new { role = "user", content = "请仅回复：连接成功" } }, stream = false, reasoning_effort = "none", web_search_options = new { search_context_size = "none" } });
+        request.Content = JsonContent.Create(TestRequest(active!));
         // The short timeout on status requests must not cut off an actual model completion.
         using var client = new HttpClient(new HttpClientHandler { UseProxy = false, AllowAutoRedirect = false }) { Timeout = TimeSpan.FromSeconds(120) };
         using var response = await client.SendAsync(request, cancellation);
         string json = await response.Content.ReadAsStringAsync(cancellation);
-        if (!response.IsSuccessStatusCode) throw new IOException($"测试失败：HTTP {(int)response.StatusCode}。请查看运行日志。");
+        if (!response.IsSuccessStatusCode)
+        {
+            string detail = "请查看运行日志。";
+            if (active!.Provider == Providers.Grok)
+            {
+                try
+                {
+                    using var error = JsonDocument.Parse(json);
+                    if (error.RootElement.TryGetProperty("error", out var value) && value.ValueKind == JsonValueKind.Object && value.TryGetProperty("message", out var message) && message.ValueKind == JsonValueKind.String)
+                        detail = message.GetString()![..Math.Min(message.GetString()!.Length, 500)];
+                }
+                catch (JsonException) { }
+            }
+            throw new IOException($"测试失败：HTTP {(int)response.StatusCode}。{detail}");
+        }
         using var doc = JsonDocument.Parse(json);
         return doc.RootElement.GetProperty("choices")[0].GetProperty("message").GetProperty("content").GetString() ?? "（返回内容为空）";
     }
+
+    internal static object TestRequest(Settings settings) => new
+    {
+        model = settings.Model, messages = new[] { new { role = "user", content = "请仅回复：连接成功" } }, stream = false,
+        reasoning_effort = settings.Provider == Providers.Grok ? "low" : "none", web_search_options = new { search_context_size = "none" }
+    };
 
     public void Dispose()
     {

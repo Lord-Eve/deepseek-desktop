@@ -95,6 +95,11 @@ internal static class Program
         }
         var fixture = new Settings { Provider = Providers.Qingyan, Accounts = [new Account { Name = "DeepSeek fixture", Login = "fixture@example.test" }, new Account { Provider = Providers.Qingyan, Name = "清言 fixture", RefreshToken = "fixture-only-refresh-token" }] };
         var flags = BindingFlags.Instance | BindingFlags.NonPublic;
+        var grokTestSettings = new Settings { Provider = Providers.Grok, GrokModel = "grok-4.7" };
+        var requestFactory = typeof(MainWindow).Assembly.GetType("DeepSeekDesktop.EngineHost")!.GetMethod("TestRequest", BindingFlags.Static | BindingFlags.NonPublic)!;
+        var testPayload = System.Text.Json.JsonSerializer.SerializeToElement(requestFactory.Invoke(null, new object[] { grokTestSettings }));
+        var convertedTest = DeepSeekDesktop.Gateway.GrokProtocol.Chat(testPayload, new DeepSeekDesktop.Gateway.GrokReplayCache());
+        Check(convertedTest["model"]?.ToString() == "grok-4.7" && convertedTest["reasoning"]?["effort"]?.ToString() == "low", "The actual desktop test payload must not disable reasoning on Grok 4.7.");
         typeof(MainWindow).GetField("settings", flags)!.SetValue(window, fixture);
         foreach (var method in new[] { "LoadSettings", "LoadAccounts", "ResetAccount" }) typeof(MainWindow).GetMethod(method, flags)!.Invoke(window, null);
         Check(((ComboBox)window.FindName("ProviderBox")).SelectedIndex == 1 && ((TextBlock)window.FindName("ModelHint")).Text.Contains("qingyan-default"), "Platform and model labels must agree.");

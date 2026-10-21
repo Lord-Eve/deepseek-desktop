@@ -68,13 +68,50 @@ public sealed class GrokClient(HttpClient http, Account account, Action<string, 
             if (response.StatusCode == HttpStatusCode.Unauthorized && attempt == 0) { response.Dispose(); continue; }
             if (!response.IsSuccessStatusCode)
             {
-                int status = (int)response.StatusCode; response.Dispose();
-                throw new UpstreamException(status is 401 or 403 ? 401 : status == 429 ? 429 : 502, status is 401 or 403 ? "Grok 授权、模型权限或订阅资格被拒绝，请确认账号后重新登录。" : status == 429 ? "Grok 额度不足或受到限流，请查看官方账号用量。" : $"Grok 上游返回 HTTP {status}，请检查模型可用性或网络。");
+                int status = (int)response.StatusCode;
+                using (response)
+                {
+                    string detail = status is 400 or 422 ? await ParameterErrorAsync(response, cancellation) : "";
+                    throw new UpstreamException(status is 400 or 422 or 426 or 429 ? status : status is 401 or 403 ? 401 : 502,
+                        status is 401 or 403 ? "Grok 授权、模型权限或订阅资格被拒绝，请确认账号后重新登录。" : status == 429 ? "Grok 额度不足或受到限流，请查看官方账号用量。" : status == 426 ? "Grok 拒绝了客户端协议版本，请更新程序后重试。" : status is 400 or 422 ? $"Grok 上游返回 HTTP {status}，请求参数被拒绝。{detail}" : $"Grok 上游返回 HTTP {status}，请检查模型可用性或网络。");
+                }
             }
             if (response.Content.Headers.ContentType?.MediaType != "text/event-stream") { response.Dispose(); throw new UpstreamException(502, "Grok 未返回预期的 Responses 事件流。"); }
             return response;
         }
         throw new UpstreamException(401, "Grok 登录已失效，请重新登录。");
+    }
+    private static async Task<string> ParameterErrorAsync(HttpResponseMessage response, CancellationToken cancellation)
+    {
+        // Reflect only bounded identifier fields; never log raw bodies, echoed prompts or credentials.
+        using var stream = await response.Content.ReadAsStreamAsync(cancellation);
+        byte[] bytes = new byte[16385]; int length = 0;
+        while (length < bytes.Length)
+        {
+            int read = await stream.ReadAsync(bytes.AsMemory(length), cancellation);
+            if (read == 0) break;
+            length += read;
+        }
+        if (length > 16384) return "上游错误响应过大，已省略详情。";
+        try
+        {
+            using var json = JsonDocument.Parse(bytes.AsMemory(0, length));
+            var error = json.RootElement;
+            if (error.ValueKind == JsonValueKind.Object && error.TryGetProperty("error", out var nested) && nested.ValueKind == JsonValueKind.Object) error = nested;
+            if (error.ValueKind != JsonValueKind.Object) return "";
+            var details = new List<string>();
+            foreach (string field in new[] { "code", "type", "param" })
+            {
+                if (!error.TryGetProperty(field, out var value) || value.ValueKind != JsonValueKind.String) continue;
+                string text = value.GetString()!;
+                string[] codes = ["invalid_argument", "invalid_request", "invalid_request_error", "invalid_value", "unsupported_parameter", "unsupported_value", "model_not_found", "bad_request", "validation_error"];
+                string[] parameters = ["model", "reasoning", "reasoning.effort", "reasoning.summary", "input", "instructions", "tools", "tool_choice", "include", "store", "stream", "max_output_tokens", "text", "text.format", "temperature", "top_p"];
+                bool safe = field == "param" ? parameters.Contains(text, StringComparer.Ordinal) : codes.Contains(text, StringComparer.OrdinalIgnoreCase);
+                if (safe && text.Length is > 0 and <= 80 && text.All(c => char.IsAsciiLetterOrDigit(c) || "_.[]-".Contains(c))) details.Add(field + "=" + text);
+            }
+            return details.Count == 0 ? "上游未提供可安全展示的错误字段，请核对模型与参数。" : string.Join("；", details) + "。";
+        }
+        catch (JsonException) { return "上游未提供可安全展示的错误字段，请核对模型与参数。"; }
     }
     public async IAsyncEnumerable<JsonObject> EventsAsync(JsonObject request, [EnumeratorCancellation] CancellationToken cancellation)
     {

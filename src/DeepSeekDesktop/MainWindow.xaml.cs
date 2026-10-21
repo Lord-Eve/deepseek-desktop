@@ -297,8 +297,8 @@ public partial class MainWindow : Window
             var candidate = Clone(); var account = index >= 0 ? candidate.Accounts[index] : new Account { Provider = Providers.Grok };
             account.Name = name; account.Enabled = enabled; account.AccessToken = tokens.AccessToken; account.RefreshToken = tokens.RefreshToken; account.TokenExpiresAt = tokens.ExpiresAt;
             if (index < 0) candidate.Accounts.Add(account);
-            PrivateStorage.Save(candidate); settings = candidate; LoadSettings(); LoadAccounts(); ResetAccount();
-            GrokLoginStatus.Text = "Grok 授权已加密保存。可启动服务后发送测试消息。"; Tell("Grok 授权已保存；当前尚未发送模型对话。");
+            PrivateStorage.Save(candidate); settings = candidate; LoadSettings(); LoadAccounts(); AccountList.SelectedItem = account;
+            GrokLoginStatus.Text = "Grok 授权已加密保存，可关闭浏览器页面，无需再次粘贴授权码。请启动服务后发送测试消息。"; Tell("Grok 授权已保存；当前尚未发送模型对话。");
         }
         catch (OperationCanceledException) { if (!quitting) { GrokLoginStatus.Text = "登录已取消或超时，原有授权保持不变。"; Tell(GrokLoginStatus.Text); } }
         catch (Exception ex) { if (!quitting) { GrokLoginStatus.Text = "登录未完成，原有授权保持不变。"; Error(ex is System.IO.IOException ? new InvalidOperationException("无法监听登录回调端口 56121，请完成或取消其他程序的 Grok 登录后重试。") : ex); } }
