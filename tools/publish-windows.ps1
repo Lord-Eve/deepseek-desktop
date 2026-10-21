@@ -24,6 +24,8 @@ try {
         if ($LASTEXITCODE -ne 0) { throw 'Real-engine protocol checks failed.' }
         dotnet run --project tests/DeepSeekDesktop.GatewayChecks -c Release
         if ($LASTEXITCODE -ne 0) { throw 'Qingyan gateway checks failed.' }
+        dotnet run --project tests/DeepSeekDesktop.GrokChecks -c Release
+        if ($LASTEXITCODE -ne 0) { throw 'Grok OAuth and protocol checks failed.' }
         dotnet run --project tests/DeepSeekDesktop.UiChecks -c Release
         if ($LASTEXITCODE -ne 0) { throw 'WPF UI checks failed.' }
     }

@@ -2,9 +2,23 @@
 
 [私有仓库](https://github.com/Lord-Eve/deepseek-desktop) · [预发布下载](https://github.com/Lord-Eve/deepseek-desktop/releases) · [Windows 构建记录](https://github.com/Lord-Eve/deepseek-desktop/actions/workflows/windows.yml)
 
-面向 Windows 11 x64 的非官方桌面客户端，支持 DeepSeek 和智谱清言。使用原生窗口管理账号与服务，在 `127.0.0.1` 提供 OpenAI 兼容 API，可供 Cherry Studio、AstrBot、Eve pet、tibo watch 等客户端配置接入。取得初始网页登录凭据后，无需一直打开浏览器，也无需安装 Node、Python 或 .NET 运行时。
+面向 Windows 11 x64 的非官方桌面客户端，支持 DeepSeek、智谱清言与 Grok OAuth（CLI 通道）。使用原生窗口管理账号与服务，在 `127.0.0.1` 提供 OpenAI 兼容 API，可供 Cherry Studio、AstrBot、Eve pet、tibo watch 等客户端配置接入。取得初始登录授权后，无需一直打开浏览器，也无需安装 Node、Python 或 .NET 运行时。
 
-**当前版本**：0.2.1，DeepSeek 引擎固定为 ds-free-api v0.5.1。桌面层采用 WPF/.NET 8，DeepSeek 使用 Rust 引擎，清言使用独立 C# 适配。用户已确认 0.2.0 清言 API 正常调用及 0.2.1 工具调用成功，模拟 Exa 闭环检查也已通过。其他客户端及网页协议的长期稳定性仍待验证。
+**当前版本**：0.3.1，DeepSeek 引擎固定为 ds-free-api v0.5.1。桌面层采用 WPF/.NET 8，清言与 Grok 使用独立 C# 适配。用户已确认清言 API 与工具调用成功；新增 Grok 已通过模拟 OAuth/Exa 闭环检查，真实官方授权与额度仍待本机验证。
+
+## 使用 Grok OAuth（CLI 通道）
+
+停止服务后选择“Grok OAuth（CLI 通道）”，在“账号管理”填写名称并点击“登录 / 重新登录 Grok”，在 xAI 官方页面完成授权。若网页显示授权码，返回本程序粘贴到临时授权码框，点击“完成登录”，无需另开 Grok CLI。自动回调仅监听 `127.0.0.1:56121/callback`，5 分钟超时，可取消；取消或超时后需重新发起登录并使用新代码。若其他程序占用此回调端口，请先完成或取消其登录。授权按账号使用 Windows DPAPI 加密保存，刷新令牌轮换时同步保存；不读取 Cherry Studio 或 Grok CLI 的登录凭据，不需要粘贴 Token。每次启用一个 Grok 账号。
+
+客户端继续使用原地址与 Key，模型先填 `grok-build`。其他预设见 `/v1/models` 及界面的模型选择框，目录只是参考，实际访问资格和额度由官方账号与服务器决定。程序启动仅载入/刷新授权，模型对话由客户端请求或“发送测试消息”主动触发，不自动探测额度。此适配独立实现 OAuth + Responses 请求，不执行本机 Grok CLI，也不自动安装或更新软件。
+
+Grok 提供 `/v1/chat/completions`（文本流式/非流式、原生函数工具声明/选择/结果回传）和 `/v1/responses`（保留原生 Responses 事件）。Exa MCP 等外部工具继续由原客户端执行。Chat Completions 请求转换成 Responses 后，工具会话依赖上游加密思考和原始工具项；这些内容仅在内存缓存最多 128 项、合计 16 MB、有效期 30 分钟，并绑定账号、模型及历史前缀。重启服务、缓存过期或修改历史后，请新建工具会话。加密思考不会混入 Chat Completions 正文或日志。
+
+Responses 客户端负责保留并回传原生加密上下文；本适配使用 `store=false`，需发送完整历史，不接受 `previous_response_id`。Chat Completions 暂仅支持文本，不保证图片/音频/文件转换；每次串行处理一个请求、最多等待 8 个，沿用本机每小时请求上限。只有未接收事件流时的 HTTP 401 会刷新并重试一次，其他错误不自动重放。
+
+协议事实参考 [Cherry Studio v2.1.6](https://github.com/CherryHQ/cherry-studio/tree/v2.1.6)，以独立 C# 实现并使用自己的客户端标识。官方认证与推理域名不等于官方对第三方适配背书；真实登录、资格、模型权限及实际 Exa MCP 仍需用户测试。完整使用步骤与边界见 [0.3.1 说明](docs/releases/v0.3.1.md)。后续通过 GitHub Release 与程序内更新入口交付，用户自行更新软件目录。
+
+后续在 Git 工作区开发和验证，发版由 GitHub CI 构建并上传 Release，你通过程序内更新入口自行更新常用软件目录；不会主动在本机 dist 准备压缩包、下载安装包或覆盖该目录。
 
 ## 使用智谱清言
 

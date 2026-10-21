@@ -29,6 +29,12 @@ try
     loaded = PrivateStorage.Load();
     Check(loaded.Provider == Providers.Qingyan && loaded.Accounts[1].RefreshToken == "fixture-qingyan-rotated-token" && loaded.Accounts[0].Password == "fixture-password-only" && loaded.ApiKey == s.ApiKey, "Encrypted token rotation must preserve other-platform accounts and the local key across reloads.");
     Check(!Encoding.UTF8.GetString(File.ReadAllBytes(PrivateStorage.SettingsPath)).Contains("fixture-qingyan-rotated-token"), "Qingyan tokens must remain encrypted on disk.");
+    s.Provider = Providers.Grok;
+    s.Accounts.Add(new Account { Provider = Providers.Grok, AccessToken = "fixture-grok-access-only", RefreshToken = "fixture-grok-refresh-only", TokenExpiresAt = DateTimeOffset.UtcNow.AddHours(1).ToUnixTimeSeconds() });
+    PrivateStorage.Save(s);
+    var grok = PrivateStorage.Load();
+    Check(grok.Accounts[2].Id == s.Accounts[2].Id && grok.Accounts[2].AccessToken == s.Accounts[2].AccessToken && grok.Accounts[2].TokenExpiresAt == s.Accounts[2].TokenExpiresAt && grok.Accounts[1].RefreshToken == s.Accounts[1].RefreshToken, "Grok OAuth credentials must round-trip through DPAPI without changing Qingyan data.");
+    Check(!Encoding.UTF8.GetString(File.ReadAllBytes(PrivateStorage.SettingsPath)).Contains("fixture-grok-access-only"), "Grok access tokens must not be plaintext on disk.");
     File.WriteAllBytes(PrivateStorage.SettingsPath, [0, 1, 2, 3]);
     bool failedClosed = false;
     try { _ = PrivateStorage.Load(); } catch (System.ComponentModel.Win32Exception) { failedClosed = true; }

@@ -2,12 +2,14 @@
 
 ## 范围与结构
 
-- 本仓库保持私有。项目是 Win11 x64 的非官方 DeepSeek 桌面客户端，原生 WPF/.NET 8 界面，本地 API 由固定版本 Rust 引擎提供。
+- 本仓库保持私有。项目是 Win11 x64 的非官方桌面客户端，原生 WPF/.NET 8 界面；DeepSeek 使用固定版本 Rust 引擎，清言与 Grok 使用独立 C# 网关。
 - `src/DeepSeekDesktop.Core`：设置校验、TOML 配置、内部 JWT、日志脱敏；可在 Linux 执行回归。
 - `src/DeepSeekDesktop`：窗口、托盘、Windows DPAPI/ACL、引擎进程托管。
+- `src/DeepSeekDesktop.Gateway`：清言网页协议、Grok OAuth/Responses 协议及仅监听本机的兼容 API。
 - `vendor/engine-lock.json` 固定上游版本与校验和；`vendor/*-source.tar.gz` 是对应完整源码，不要随意移除。
 - `.github/workflows/windows.yml` 执行检查和打包；`release.yml` 仅由版本 tag 触发发布。
 - 只在 Git 工作区修改、构建和验证；不要直接修改已解压的安装目录。新版本通过发布包交付，由用户重新下载升级。
+- 用户自行维护常用启动目录 `D:\文档\Claude\Projects\DeepSeekDesktop`。不主动下载软件安装包，不自动复制或替换此目录；在 Git 工作区开发和验证，请求发布时通过 GitHub CI 构建与 Release 交付，不主动在本机 dist 准备压缩包或解压副本，由用户通过程序内更新入口自行更新。
 
 ## 开发与验证
 
@@ -15,6 +17,7 @@
 - 修改设置、协议、鉴权或进程生命周期时，运行相关检查。不要将只编译通过表述为已经完成 Win11 桌面或真实账号验证。
 - 核心回归：`dotnet run --project tests/DeepSeekDesktop.Checks -c Release`。
 - Windows 原生回归：`dotnet run --project tests/DeepSeekDesktop.WindowsChecks -c Release`。
+- Grok 契约回归：`dotnet run --project tests/DeepSeekDesktop.GrokChecks -c Release`，仅使用本地模拟 OAuth 和上游，不读真实登录态、不消耗额度。
 - 引擎契约回归：先用核心检查的 `--fixture fixture.toml` 生成假配置，再运行 `python tests/engine_contract.py --engine engine/ds-free-api.exe --config fixture.toml`。测试仅连接本地假上游，不需要真实账号。
 - Windows 打包：`powershell -NoProfile -ExecutionPolicy Bypass -File tools/publish-windows.ps1`。
 - PowerShell 文件使用 UTF-8 BOM 和 CRLF，兼容 Windows PowerShell 5.1。

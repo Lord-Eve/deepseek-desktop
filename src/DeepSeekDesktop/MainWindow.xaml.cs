@@ -4,6 +4,8 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Net;
+using System.Net.Http;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -12,6 +14,7 @@ using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Threading;
 using DeepSeekDesktop.Core;
+using DeepSeekDesktop.Gateway;
 using Forms = System.Windows.Forms;
 
 namespace DeepSeekDesktop;
@@ -33,6 +36,8 @@ public partial class MainWindow : Window
     private bool checkingUpdates, startupUpdateChecked;
     private string updatePageUrl = UpdateFeed.ReleasesUrl;
     private bool loadingProvider;
+    private CancellationTokenSource? grokLoginCancellation;
+    private GrokLoginInput? grokLoginInput;
 
     public MainWindow()
     {
@@ -45,6 +50,12 @@ public partial class MainWindow : Window
             account.RefreshToken = next;
             PrivateStorage.Save(candidate);
             settings = candidate;
+        });
+        engine.GrokTokensChanged += (id, tokens) => Dispatcher.Invoke(() =>
+        {
+            var candidate = Clone(); var account = candidate.Accounts.Single(a => a.Provider == Providers.Grok && a.Id == id);
+            account.AccessToken = tokens.AccessToken; account.RefreshToken = tokens.RefreshToken; account.TokenExpiresAt = tokens.ExpiresAt;
+            PrivateStorage.Save(candidate); settings = candidate;
         });
         Loaded += (_, _) => Initialize();
         timer.Tick += async (_, _) => await RefreshAsync();
@@ -90,14 +101,16 @@ public partial class MainWindow : Window
     private void LoadSettings()
     {
         loadingProvider = true;
-        ProviderBox.SelectedIndex = settings.Provider == Providers.Qingyan ? 1 : 0;
+        ProviderBox.SelectedIndex = settings.Provider == Providers.Grok ? 2 : settings.Provider == Providers.Qingyan ? 1 : 0;
+        GrokModelBox.ItemsSource = GrokProtocol.Models; GrokModelBox.SelectedItem = settings.GrokModel;
         loadingProvider = false;
-        bool qingyan = settings.Provider == Providers.Qingyan;
-        DeepSeekCredentials.Visibility = qingyan ? Visibility.Collapsed : Visibility.Visible;
+        bool qingyan = settings.Provider == Providers.Qingyan, grok = settings.Provider == Providers.Grok;
+        GrokModelPanel.Visibility = GrokCredentials.Visibility = grok ? Visibility.Visible : Visibility.Collapsed;
+        DeepSeekCredentials.Visibility = qingyan || grok ? Visibility.Collapsed : Visibility.Visible;
         QingyanCredentials.Visibility = qingyan ? Visibility.Visible : Visibility.Collapsed;
-        CredentialHelpButton.Content = qingyan ? "如何获取登录态" : "如何获取 device_id";
-        ModelHint.Text = $"模型：{settings.Model}（网页端当前默认模式）";
-        StartupHint.Text = qingyan ? "清言启动仅校验登录态，不发送对话。支持文本和工具调用兼容适配，MCP 由客户端执行；暂不支持图片。" : "DeepSeek 启动会登录启用账号，并发送后端自带的健康检查消息。";
+        CredentialHelpButton.Content = grok ? "Grok 登录说明" : qingyan ? "如何获取登录态" : "如何获取 device_id";
+        ModelHint.Text = grok ? $"默认测试模型：{settings.Model}；客户端可选择 /v1/models 中的其他预设。" : $"模型：{settings.Model}（网页端当前默认模式）";
+        StartupHint.Text = grok ? "Grok 使用 OAuth 授权及官方 CLI 通道；启动不发送对话。模型目录为预设，订阅资格、模型权限和额度以实际调用为准。" : qingyan ? "清言启动仅校验登录态，不发送对话。支持文本和工具调用兼容适配，MCP 由客户端执行；暂不支持图片。" : "DeepSeek 启动会登录启用账号，并发送后端自带的健康检查消息。";
         PortBox.Text = settings.Port.ToString(); QuotaBox.Text = settings.HourlyQuota.ToString(); ProxyBox.Text = settings.ProxyUrl;
         SearchEnabled.IsChecked = settings.SearchEnabled; EndpointBox.Text = settings.BaseUrl;
         ApiKeyBox.Text = settings.ApiKey;
@@ -112,22 +125,29 @@ public partial class MainWindow : Window
     {
         editing = -1; AccountList.SelectedIndex = -1; AccountEditorTitle.Text = "添加账号";
         AccountName.Text = "我的 " + settings.ProviderName; AccountLogin.Text = ""; AccountPassword.Clear(); AccountDevice.Clear(); AccountToken.Clear(); AccountEnabled.IsChecked = true;
+        GrokLoginStatus.Text = "尚未登录 Grok，请先填写名称后点击登录。";
     }
     private void Provider_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         if (!initialized || loadingProvider) return;
         try
         {
-            var candidate = Clone(); candidate.Provider = ProviderBox.SelectedIndex == 1 ? Providers.Qingyan : Providers.DeepSeek;
+            var candidate = Clone(); candidate.Provider = ProviderBox.SelectedIndex == 2 ? Providers.Grok : ProviderBox.SelectedIndex == 1 ? Providers.Qingyan : Providers.DeepSeek;
             Save(candidate); ResetAccount(); poolStatus = null; TestReply.Text = "尚未测试"; UpdateState();
             Tell($"已切换到{settings.ProviderName}。原平台账号已保留；客户端模型请改为 {settings.Model}。");
         }
         catch (Exception ex) { LoadSettings(); Error(ex); }
     }
+    private void GrokModel_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (!initialized || loadingProvider || GrokModelBox.SelectedItem is not string model) return;
+        try { var candidate = Clone(); candidate.GrokModel = model; Save(candidate); Tell("Grok 默认测试模型已保存；客户端请求可自行指定模型。"); }
+        catch (Exception ex) { LoadSettings(); Error(ex); }
+    }
     private Settings Clone() => JsonSerializer.Deserialize<Settings>(JsonSerializer.Serialize(settings))!;
     private void Save(Settings candidate)
     {
-        if (engine.IsRunning || busy || stopInProgress) throw new InvalidOperationException("请先停止服务再修改配置。");
+        if (engine.IsRunning || busy || stopInProgress || grokLoginCancellation != null) throw new InvalidOperationException("请先停止服务或完成当前登录，再修改配置。");
         PrivateStorage.Save(candidate); settings = candidate; LoadSettings(); LoadAccounts();
     }
     private void Tell(string text) { Notice.Text = text; }
@@ -141,12 +161,19 @@ public partial class MainWindow : Window
     private void UpdateState()
     {
         bool running = engine.IsRunning, ready = running && engine.IsReady;
-        StartButton.IsEnabled = !running && !busy && !stopInProgress;
-        ProviderBox.IsEnabled = !running && !busy && !stopInProgress;
+        bool signingIn = grokLoginCancellation != null;
+        StartButton.IsEnabled = !running && !busy && !stopInProgress && !signingIn;
+        ProviderBox.IsEnabled = GrokModelBox.IsEnabled = !running && !busy && !stopInProgress && !signingIn;
         StopButton.IsEnabled = (running || busy) && !stopInProgress;
         ProbeButton.IsEnabled = ready && !busy && !stopInProgress;
         TestButton.IsEnabled = ready && poolStatus?.HasUsableAccount == true && !busy && !stopInProgress && testCancellation == null;
         AccountEditor.IsEnabled = SettingsEditor.IsEnabled = NewAccountButton.IsEnabled = DeleteAccountButton.IsEnabled = !running && !busy && !stopInProgress;
+        SettingsEditor.IsEnabled &= !signingIn;
+        NewAccountButton.IsEnabled &= !signingIn; DeleteAccountButton.IsEnabled &= !signingIn;
+        AccountList.IsEnabled = SaveAccountButton.IsEnabled = AccountName.IsEnabled = AccountEnabled.IsEnabled = !signingIn;
+        GrokLoginButton.IsEnabled = !signingIn; CancelGrokLoginButton.IsEnabled = signingIn;
+        GrokCodePanel.Visibility = signingIn ? Visibility.Visible : Visibility.Collapsed;
+        GrokAuthorizationCode.IsEnabled = SubmitGrokCodeButton.IsEnabled = signingIn && grokLoginInput?.CanSubmit == true;
         ServiceStatus.Text = stopInProgress ? "停止中" : busy ? "正在启动" : ready ? poolStatus?.Title ?? "账号状态待确认" : running ? "初始化中" : "已停止";
         StatusPill.Background = new SolidColorBrush(ready
             ? poolStatus is { HasUsableAccount: true, HasFailures: false } ? Color.FromRgb(225, 246, 236) : Color.FromRgb(255, 237, 213)
@@ -223,6 +250,7 @@ public partial class MainWindow : Window
         if (AccountList.SelectedItem is not Account a) return;
         editing = settings.Accounts.IndexOf(a); AccountEditorTitle.Text = "编辑账号"; AccountName.Text = a.Name; AccountLogin.Text = a.Login;
         AccountPassword.Clear(); AccountDevice.Clear(); AccountToken.Clear(); AccountEnabled.IsChecked = a.Enabled;
+        GrokLoginStatus.Text = a.Provider == Providers.Grok && a.RefreshToken.Length > 0 ? "已保存 Grok 授权。启动时按需刷新；实际模型权限和额度请单独测试。" : "尚未登录 Grok。";
     }
     private void NewAccount_Click(object sender, RoutedEventArgs e) { ResetAccount(); AccountName.Focus(); }
     private void SaveAccount_Click(object sender, RoutedEventArgs e)
@@ -231,7 +259,7 @@ public partial class MainWindow : Window
         {
             var candidate = Clone();
             var old = editing >= 0 ? candidate.Accounts[editing] : null;
-            var value = new Account { Provider = settings.Provider, RefreshToken = AccountToken.Password.Length > 0 ? AccountToken.Password.Trim() : old?.RefreshToken ?? "", Name = AccountName.Text.Trim(), Login = AccountLogin.Text.Trim(), Password = AccountPassword.Password.Length > 0 ? AccountPassword.Password : old?.Password ?? "", DeviceId = AccountDevice.Password.Length > 0 ? AccountDevice.Password.Trim() : old?.DeviceId ?? "", Enabled = AccountEnabled.IsChecked == true };
+            var value = new Account { Id = old?.Id ?? Guid.NewGuid().ToString("N"), AccessToken = old?.AccessToken ?? "", TokenExpiresAt = old?.TokenExpiresAt ?? 0, Provider = settings.Provider, RefreshToken = AccountToken.Password.Length > 0 ? AccountToken.Password.Trim() : old?.RefreshToken ?? "", Name = AccountName.Text.Trim(), Login = AccountLogin.Text.Trim(), Password = AccountPassword.Password.Length > 0 ? AccountPassword.Password : old?.Password ?? "", DeviceId = AccountDevice.Password.Length > 0 ? AccountDevice.Password.Trim() : old?.DeviceId ?? "", Enabled = AccountEnabled.IsChecked == true };
             if (value.Name.Length == 0) throw new ArgumentException("请填写账号名称。");
             if (settings.Provider == Providers.DeepSeek && old != null && old.Login != value.Login && (AccountPassword.Password.Length == 0 || AccountDevice.Password.Length == 0)) throw new ArgumentException("更换登录名时，请同时填写该账号的密码和 device_id。");
             if (editing >= 0) candidate.Accounts[editing] = value; else candidate.Accounts.Add(value);
@@ -239,6 +267,42 @@ public partial class MainWindow : Window
         }
         catch (Exception ex) { Error(ex); }
     }
+    private async void GrokLogin_Click(object sender, RoutedEventArgs e)
+    {
+        if (settings.Provider != Providers.Grok || grokLoginCancellation != null || engine.IsRunning || busy || stopInProgress) return;
+        string name = AccountName.Text.Trim();
+        if (name.Length == 0) { Tell("请先填写 Grok 账号名称。"); return; }
+        int index = editing; bool enabled = AccountEnabled.IsChecked == true;
+        if (enabled && settings.Accounts.Where((_, i) => i != index).Any(a => a.Provider == Providers.Grok && a.Enabled)) { Tell("请先停用其他 Grok 账号，再登录新的启用账号。"); return; }
+        grokLoginCancellation = new CancellationTokenSource(); UpdateState(); GrokLoginStatus.Text = "正在打开 xAI 官方登录页；请在浏览器完成授权，最长等待 5 分钟。";
+        try
+        {
+            using var http = new HttpClient(new HttpClientHandler { AllowAutoRedirect = false, UseCookies = false, UseProxy = settings.ProxyUrl.Length > 0, Proxy = settings.ProxyUrl.Length > 0 ? new WebProxy(settings.ProxyUrl) : null }) { Timeout = TimeSpan.FromSeconds(30) };
+            var oauth = new GrokOAuth(http);
+            var tokens = await oauth.LoginAsync(url => { Process.Start(new ProcessStartInfo(url.AbsoluteUri) { UseShellExecute = true }); return Task.CompletedTask; }, grokLoginCancellation.Token, input =>
+            {
+                grokLoginInput = input; UpdateState();
+                GrokLoginStatus.Text = "请在浏览器授权；若网页显示授权码，请粘贴到下方完成登录。最长等待 5 分钟。";
+            });
+            if (quitting) return;
+            var candidate = Clone(); var account = index >= 0 ? candidate.Accounts[index] : new Account { Provider = Providers.Grok };
+            account.Name = name; account.Enabled = enabled; account.AccessToken = tokens.AccessToken; account.RefreshToken = tokens.RefreshToken; account.TokenExpiresAt = tokens.ExpiresAt;
+            if (index < 0) candidate.Accounts.Add(account);
+            PrivateStorage.Save(candidate); settings = candidate; LoadSettings(); LoadAccounts(); ResetAccount();
+            GrokLoginStatus.Text = "Grok 授权已加密保存。可启动服务后发送测试消息。"; Tell("Grok 授权已保存；当前尚未发送模型对话。");
+        }
+        catch (OperationCanceledException) { if (!quitting) { GrokLoginStatus.Text = "登录已取消或超时，原有授权保持不变。"; Tell(GrokLoginStatus.Text); } }
+        catch (Exception ex) { if (!quitting) { GrokLoginStatus.Text = "登录未完成，原有授权保持不变。"; Error(ex is System.IO.IOException ? new InvalidOperationException("无法监听登录回调端口 56121，请完成或取消其他程序的 Grok 登录后重试。") : ex); } }
+        finally { grokLoginInput = null; GrokAuthorizationCode.Clear(); grokLoginCancellation.Dispose(); grokLoginCancellation = null; if (!quitting) UpdateState(); }
+    }
+    private void SubmitGrokCode_Click(object sender, RoutedEventArgs e)
+    {
+        bool accepted = grokLoginInput?.SubmitCode(GrokAuthorizationCode.Password) == true;
+        GrokAuthorizationCode.Clear();
+        GrokLoginStatus.Text = accepted ? "正在换取并保存 Grok 授权，请稍候。" : "未能提交，请粘贴本次登录页面上的完整授权码；过期后需重新登录。";
+        UpdateState();
+    }
+    private void CancelGrokLogin_Click(object sender, RoutedEventArgs e) => grokLoginCancellation?.Cancel();
     private void DeleteAccount_Click(object sender, RoutedEventArgs e)
     {
         if (AccountList.SelectedIndex < 0) { Tell("请先选择账号。"); return; }
@@ -315,6 +379,11 @@ public partial class MainWindow : Window
     }
     private void DeviceHelp_Click(object sender, RoutedEventArgs e)
     {
+        if (settings.Provider == Providers.Grok)
+        {
+            MessageBox.Show(this, "填写账号名称后点击“登录 / 重新登录 Grok”，在 xAI 官方页面完成授权。无需粘贴 Token；本程序不读取 Cherry Studio 或 Grok CLI 的登录文件。\n\n回调仅监听本机 127.0.0.1:56121；若其他程序正在登录 Grok，请先完成或取消它。可随时点击“取消登录”。\n\n本地模型列表是预设目录，实际权限与订阅额度以官方账号和调用结果为准。每次启用一个 Grok 账号。", "Grok OAuth 登录", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
         if (settings.Provider == Providers.Qingyan)
         {
             MessageBox.Show(this, "在你自己的浏览器登录 https://chatglm.cn，确认可以正常对话。\n\n按 F12 → Application（应用）→ Cookies 或 Local Storage，查找 chatglm_refresh_token，复制其值到本程序的清言 refresh token 输入框。不要复制 chatglm_token（短期访问令牌）。\n\n本程序不会读取浏览器数据。登录态按 Windows 用户加密保存；上游轮换令牌时自动保存新值。不要把 Token 发到聊天、截图或公开 Issue。\n\n如果该字段不存在，请先退出并重新登录网页；网页字段可能发生变化。", "清言登录态", MessageBoxButton.OK, MessageBoxImage.Information);
@@ -331,7 +400,7 @@ public partial class MainWindow : Window
     private async Task QuitAsync()
     {
         if (quitting) return;
-        quitting = true; timer.Stop(); testCancellation?.Cancel(); updateCancellation.Cancel();
+        quitting = true; timer.Stop(); testCancellation?.Cancel(); updateCancellation.Cancel(); grokLoginCancellation?.Cancel();
         try { if (initialized) await engine.StopAsync(); }
         catch (Exception) { MessageBox.Show(this, "退出时未能完成运行文件清理，下次启动将再次尝试清理。", "DeepSeek Desktop", MessageBoxButton.OK, MessageBoxImage.Information); }
         finally { tray?.Dispose(); trayIcon?.Dispose(); engine.Dispose(); Application.Current.Shutdown(); }

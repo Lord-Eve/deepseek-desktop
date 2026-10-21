@@ -30,11 +30,13 @@ internal sealed class EngineHost : IDisposable
     private string secret = "";
     private Settings? active;
     private QingyanGateway? qingyan;
-    public bool IsRunning => qingyan?.IsRunning == true || spawned && process is { HasExited: false };
+    private GrokGateway? grok;
+    public bool IsRunning => grok?.IsRunning == true || qingyan?.IsRunning == true || spawned && process is { HasExited: false };
     public bool IsReady { get; private set; }
     public string? BaseUrl => active?.BaseUrl;
     public event Action<string>? Log;
     public event Action<string, string>? RefreshTokenChanged;
+    public event Action<string, GrokTokens>? GrokTokensChanged;
 
     public async Task StartAsync(Settings settings)
     {
@@ -44,6 +46,13 @@ internal sealed class EngineHost : IDisposable
             if (IsRunning) throw new InvalidOperationException("服务已在运行。");
             await CleanupAsync();
             settings.Validate();
+            if (settings.Provider == Providers.Grok)
+            {
+                active = JsonSerializer.Deserialize<Settings>(JsonSerializer.Serialize(settings))!;
+                starting = new CancellationTokenSource(TimeSpan.FromMinutes(3));
+                grok = new GrokGateway(active, (id, tokens) => GrokTokensChanged?.Invoke(id, tokens), line => Log?.Invoke(line));
+                await grok.StartAsync(starting.Token); IsReady = true; return;
+            }
             if (settings.Provider == Providers.Qingyan)
             {
                 active = JsonSerializer.Deserialize<Settings>(JsonSerializer.Serialize(settings))!;
@@ -116,6 +125,7 @@ internal sealed class EngineHost : IDisposable
     private async Task CleanupAsync()
     {
         IsReady = false;
+        if (grok != null) { await grok.DisposeAsync(); grok = null; }
         if (qingyan != null) { await qingyan.DisposeAsync(); qingyan = null; }
         if (process != null)
         {
@@ -165,6 +175,7 @@ internal sealed class EngineHost : IDisposable
     public async Task<JsonElement> AdminAsync(string resource)
     {
         if (resource is not ("stats" or "status")) throw new ArgumentException("不支持的状态资源。");
+        if (grok != null) return grok.Status(resource);
         if (qingyan != null) return qingyan.Status(resource);
         using var request = Request(HttpMethod.Get, "/admin/api/" + resource, true);
         using var response = await http.SendAsync(request);

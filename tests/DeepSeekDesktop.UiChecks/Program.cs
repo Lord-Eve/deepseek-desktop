@@ -106,6 +106,22 @@ internal static class Program
         fixture.Provider = Providers.DeepSeek;
         foreach (var method in new[] { "LoadSettings", "LoadAccounts", "ResetAccount" }) typeof(MainWindow).GetMethod(method, flags)!.Invoke(window, null);
         Check(accounts.Items.Count == 1 && ReferenceEquals(accounts.Items[0], fixture.Accounts[0]) && fixture.Accounts[1].RefreshToken == "fixture-only-refresh-token", "Switching back must preserve both platforms' accounts.");
+        fixture.Provider = Providers.Grok;
+        fixture.Accounts.Add(new Account { Provider = Providers.Grok, Name = "Grok fixture", AccessToken = "fixture-access-only", RefreshToken = "fixture-refresh-only" });
+        foreach (var method in new[] { "LoadSettings", "LoadAccounts", "ResetAccount" }) typeof(MainWindow).GetMethod(method, flags)!.Invoke(window, null);
+        Check(((ComboBox)window.FindName("ProviderBox")).SelectedIndex == 2 && ((FrameworkElement)window.FindName("GrokCredentials")).Visibility == Visibility.Visible && ((FrameworkElement)window.FindName("QingyanCredentials")).Visibility == Visibility.Collapsed && ((FrameworkElement)window.FindName("DeepSeekCredentials")).Visibility == Visibility.Collapsed, "Grok must show browser login controls without password or token inputs.");
+        Check(((ComboBox)window.FindName("GrokModelBox")).Items.Count > 1 && ((ComboBox)window.FindName("GrokModelBox")).SelectedItem as string == "grok-build", "Grok model presets must be selectable with the saved default selected.");
+        Check(accounts.Items.Count == 1 && !accounts.Items[0].ToString()!.Contains("fixture-refresh"), "The Grok account list must filter correctly and not reveal credentials.");
+        using (var signingIn = new CancellationTokenSource())
+        {
+            typeof(MainWindow).GetField("grokLoginCancellation", flags)!.SetValue(window, signingIn);
+            typeof(MainWindow).GetMethod("UpdateState", flags)!.Invoke(window, null);
+            Check(!((Button)window.FindName("StartButton")).IsEnabled && !((ComboBox)window.FindName("ProviderBox")).IsEnabled && ((Button)window.FindName("CancelGrokLoginButton")).IsEnabled && !((Button)window.FindName("SaveAccountButton")).IsEnabled, "Login must be cancellable while service start, provider changes and competing saves are disabled.");
+            Check(((FrameworkElement)window.FindName("GrokCodePanel")).Visibility == Visibility.Visible && !((PasswordBox)window.FindName("GrokAuthorizationCode")).IsEnabled && !((Button)window.FindName("SubmitGrokCodeButton")).IsEnabled, "Manual code controls must wait for a live OAuth attempt before accepting a code.");
+            typeof(MainWindow).GetField("grokLoginCancellation", flags)!.SetValue(window, null);
+            typeof(MainWindow).GetMethod("UpdateState", flags)!.Invoke(window, null);
+            Check(((FrameworkElement)window.FindName("GrokCodePanel")).Visibility == Visibility.Collapsed && !((Button)window.FindName("SubmitGrokCodeButton")).IsEnabled, "Manual code entry must be hidden and disabled outside a login attempt.");
+        }
         int closeAttempts = 0;
         window.Closing += (_, e) => { if (e.Cancel) closeAttempts++; };
         window.Close();

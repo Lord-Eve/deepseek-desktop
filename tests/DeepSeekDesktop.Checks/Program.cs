@@ -79,4 +79,15 @@ Check(!EngineConfig.Render(migrated, "fixture-admin-secret").Contains("fixture-q
 Check(!LogRedactor.Redact("credential=" + migrated.Accounts[1].RefreshToken, migrated, "").Contains("fixture-qingyan-refresh"), "Qingyan refresh tokens must be redacted even without an auth field name.");
 migrated.Accounts[1].RefreshToken = "token\r\ninjection";
 Invalid(() => migrated.Validate(), "Qingyan credentials must not inject HTTP headers.");
+var grok = new Settings { Provider = Providers.Grok, Accounts = [new Account { Provider = Providers.Grok, AccessToken = "fixture-access-0123456789", RefreshToken = "fixture-refresh-0123456789", TokenExpiresAt = DateTimeOffset.UtcNow.AddHours(1).ToUnixTimeSeconds() }] };
+grok.Validate();
+Check(grok.ProviderName == "Grok OAuth" && grok.Model == "grok-build", "The Grok platform must expose its own display name and default model.");
+Check(!EngineConfig.Render(grok, "fixture-admin").Contains("fixture-refresh") && !EngineConfig.Render(grok, "fixture-admin").Contains("fixture-access"), "Grok credentials must never enter the Rust engine config.");
+Check(!LogRedactor.Redact("credential=" + grok.Accounts[0].AccessToken, grok, "").Contains("fixture-access"), "Grok OAuth access tokens must be redacted even without an auth label.");
+var serialized = JsonSerializer.Deserialize<Settings>(JsonSerializer.Serialize(grok))!;
+Check(serialized.Accounts[0].Id == grok.Accounts[0].Id && serialized.Accounts[0].TokenExpiresAt == grok.Accounts[0].TokenExpiresAt, "Account IDs and OAuth expiry must remain stable through settings serialization.");
+grok.Accounts.Add(new Account { Provider = Providers.Grok, RefreshToken = "fixture-other-refresh-0123456789" });
+Invalid(() => grok.Validate(), "The initial Grok adapter must not mix concurrent active accounts and replay contexts.");
+grok.Accounts[1].Enabled = false; grok.Validate();
+grok.Accounts[0].AccessToken = "injected\r\nheader"; Invalid(() => grok.Validate(), "Access tokens must not inject headers.");
 Console.WriteLine($"PASS: {assertions} core checks");
