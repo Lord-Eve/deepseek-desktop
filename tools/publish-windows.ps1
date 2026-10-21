@@ -28,6 +28,8 @@ try {
         if ($LASTEXITCODE -ne 0) { throw 'Grok OAuth and protocol checks failed.' }
         dotnet run --project tests/DeepSeekDesktop.UiChecks -c Release
         if ($LASTEXITCODE -ne 0) { throw 'WPF UI checks failed.' }
+        dotnet run --project tests/DeepSeekDesktop.UpdateChecks -c Release
+        if ($LASTEXITCODE -ne 0) { throw 'Update install and rollback checks failed.' }
     }
     $packageName = 'DeepSeekDesktop-' + $version + '-win-x64'
     $outputDir = Join-Path $repoRoot ('dist/' + $packageName)
@@ -40,6 +42,12 @@ try {
     if ($publishedVersion.ProductVersion.Split('+')[0] -ne $version -or $publishedVersion.FileVersion -ne ($version + '.0')) {
         throw 'Published executable and project version do not match.'
     }
+    $updaterVersion = ([xml](Get-Content 'src/DeepSeekDesktop.Updater/DeepSeekDesktop.Updater.csproj' -Raw)).Project.PropertyGroup.Version
+    if ($updaterVersion -ne $version) { throw 'Updater and desktop version do not match.' }
+    $updaterOutput = Join-Path $repoRoot 'artifacts/updater'
+    dotnet publish src/DeepSeekDesktop.Updater/DeepSeekDesktop.Updater.csproj -c Release -r win-x64 -p:SelfContained=true -p:PublishSingleFile=true -p:EnableCompressionInSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true --disable-build-servers -m:1 -o $updaterOutput
+    if ($LASTEXITCODE -ne 0) { throw 'Updater publish failed.' }
+    Copy-Item (Join-Path $updaterOutput 'DeepSeekDesktop.Updater.exe') $outputDir
     New-Item (Join-Path $outputDir 'engine') -ItemType Directory -Force | Out-Null
     Copy-Item engine/ds-free-api.exe (Join-Path $outputDir 'engine/')
     Copy-Item README.md,LICENSE,THIRD-PARTY-NOTICES.md,CHANGELOG.md $outputDir

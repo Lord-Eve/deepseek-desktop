@@ -2,7 +2,10 @@ using System.Text.Json;
 
 namespace DeepSeekDesktop.Core;
 
-public sealed record DesktopRelease(Version Version, string PageUrl);
+public sealed record DesktopRelease(Version Version, string PageUrl)
+{
+    public string PackageName => $"DeepSeekDesktop-{Version}-win-x64.zip";
+}
 
 public static class UpdateFeed
 {

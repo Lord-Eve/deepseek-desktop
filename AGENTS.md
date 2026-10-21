@@ -7,8 +7,8 @@
 - `src/DeepSeekDesktop`：窗口、托盘、Windows DPAPI/ACL、引擎进程托管。
 - `src/DeepSeekDesktop.Gateway`：清言网页协议、Grok OAuth/Responses 协议及仅监听本机的兼容 API。
 - `vendor/engine-lock.json` 固定上游版本与校验和；`vendor/*-source.tar.gz` 是对应完整源码，不要随意移除。
-- `.github/workflows/windows.yml` 执行检查和打包；`release.yml` 仅由版本 tag 触发发布。
-- 只在 Git 工作区修改、构建和验证；不要直接修改已解压的安装目录。新版本通过发布包交付，由用户重新下载升级。
+- `.github/workflows/windows.yml` 执行检查和打包；`release.yml` 由版本 tag 或手动指定既有版本 tag 触发发布。
+- 只在 Git 工作区修改、构建和验证；开发代理不要直接修改已解压的安装目录。新版本通过 GitHub 发布包交付；0.4.0 起用户可在软件中点击下载、替换并重启更新。
 - 用户自行维护常用启动目录 `D:\文档\Claude\Projects\DeepSeekDesktop`。不主动下载软件安装包，不自动复制或替换此目录；在 Git 工作区开发和验证，请求发布时通过 GitHub CI 构建与 Release 交付，不主动在本机 dist 准备压缩包或解压副本，由用户通过程序内更新入口自行更新。
 
 ## 开发与验证
@@ -18,6 +18,7 @@
 - 核心回归：`dotnet run --project tests/DeepSeekDesktop.Checks -c Release`。
 - Windows 原生回归：`dotnet run --project tests/DeepSeekDesktop.WindowsChecks -c Release`。
 - Grok 契约回归：`dotnet run --project tests/DeepSeekDesktop.GrokChecks -c Release`，仅使用本地模拟 OAuth 和上游，不读真实登录态、不消耗额度。
+- 更新回归：`dotnet run --project tests/DeepSeekDesktop.UpdateChecks -c Release`，仅创建临时软件目录，验证校验、路径限制、文件占用回滚和更新组件重启。不得用真实软件目录试装。
 - 引擎契约回归：先用核心检查的 `--fixture fixture.toml` 生成假配置，再运行 `python tests/engine_contract.py --engine engine/ds-free-api.exe --config fixture.toml`。测试仅连接本地假上游，不需要真实账号。
 - Windows 打包：`powershell -NoProfile -ExecutionPolicy Bypass -File tools/publish-windows.ps1`。
 - PowerShell 文件使用 UTF-8 BOM 和 CRLF，兼容 Windows PowerShell 5.1。

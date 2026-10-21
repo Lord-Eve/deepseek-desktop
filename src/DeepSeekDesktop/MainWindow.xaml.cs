@@ -34,6 +34,9 @@ public partial class MainWindow : Window
     private PoolStatus? poolStatus;
     private readonly CancellationTokenSource updateCancellation = new();
     private bool checkingUpdates, startupUpdateChecked;
+    private bool updating;
+    private CancellationTokenSource? installUpdateCancellation;
+    private DesktopRelease? availableRelease;
     private string updatePageUrl = UpdateFeed.ReleasesUrl;
     private bool loadingProvider;
     private CancellationTokenSource? grokLoginCancellation;
@@ -75,6 +78,9 @@ public partial class MainWindow : Window
             }
             initialized = true;
             LoadSettings(); LoadAccounts(); ResetAccount(); SetupTray(); UpdateState(); timer.Start();
+            bool resume = UpdateService.ConfirmRestart(Environment.GetCommandLineArgs()[1..]);
+            try { UpdateService.CleanCompleted(); } catch (IOException) { } catch (UnauthorizedAccessException) { }
+            if (resume) Start_Click(this, new RoutedEventArgs());
             if (!startupUpdateChecked) { startupUpdateChecked = true; _ = CheckForUpdatesAsync(); }
         }
         catch (Exception ex)
@@ -147,7 +153,7 @@ public partial class MainWindow : Window
     private Settings Clone() => JsonSerializer.Deserialize<Settings>(JsonSerializer.Serialize(settings))!;
     private void Save(Settings candidate)
     {
-        if (engine.IsRunning || busy || stopInProgress || grokLoginCancellation != null) throw new InvalidOperationException("请先停止服务或完成当前登录，再修改配置。");
+        if (engine.IsRunning || busy || stopInProgress || grokLoginCancellation != null || updating) throw new InvalidOperationException("请先停止服务或完成当前登录、更新，再修改配置。");
         PrivateStorage.Save(candidate); settings = candidate; LoadSettings(); LoadAccounts();
     }
     private void Tell(string text) { Notice.Text = text; }
@@ -162,18 +168,21 @@ public partial class MainWindow : Window
     {
         bool running = engine.IsRunning, ready = running && engine.IsReady;
         bool signingIn = grokLoginCancellation != null;
-        StartButton.IsEnabled = !running && !busy && !stopInProgress && !signingIn;
-        ProviderBox.IsEnabled = GrokModelBox.IsEnabled = !running && !busy && !stopInProgress && !signingIn;
+        StartButton.IsEnabled = !running && !busy && !stopInProgress && !signingIn && !updating;
+        ProviderBox.IsEnabled = GrokModelBox.IsEnabled = !running && !busy && !stopInProgress && !signingIn && !updating;
         StopButton.IsEnabled = (running || busy) && !stopInProgress;
         ProbeButton.IsEnabled = ready && !busy && !stopInProgress;
         TestButton.IsEnabled = ready && poolStatus?.HasUsableAccount == true && !busy && !stopInProgress && testCancellation == null;
-        AccountEditor.IsEnabled = SettingsEditor.IsEnabled = NewAccountButton.IsEnabled = DeleteAccountButton.IsEnabled = !running && !busy && !stopInProgress;
+        AccountEditor.IsEnabled = SettingsEditor.IsEnabled = NewAccountButton.IsEnabled = DeleteAccountButton.IsEnabled = !running && !busy && !stopInProgress && !updating;
         SettingsEditor.IsEnabled &= !signingIn;
         NewAccountButton.IsEnabled &= !signingIn; DeleteAccountButton.IsEnabled &= !signingIn;
         AccountList.IsEnabled = SaveAccountButton.IsEnabled = AccountName.IsEnabled = AccountEnabled.IsEnabled = !signingIn;
         GrokLoginButton.IsEnabled = !signingIn; CancelGrokLoginButton.IsEnabled = signingIn;
         GrokCodePanel.Visibility = signingIn ? Visibility.Visible : Visibility.Collapsed;
         GrokAuthorizationCode.IsEnabled = SubmitGrokCodeButton.IsEnabled = signingIn && grokLoginInput?.CanSubmit == true;
+        DownloadUpdateButton.IsEnabled = availableRelease != null && !updating && !checkingUpdates && !signingIn && !busy && !stopInProgress;
+        CheckUpdatesButton.IsEnabled = !checkingUpdates && !updating;
+        CancelUpdateButton.Visibility = updating ? Visibility.Visible : Visibility.Collapsed;
         ServiceStatus.Text = stopInProgress ? "停止中" : busy ? "正在启动" : ready ? poolStatus?.Title ?? "账号状态待确认" : running ? "初始化中" : "已停止";
         StatusPill.Background = new SolidColorBrush(ready
             ? poolStatus is { HasUsableAccount: true, HasFailures: false } ? Color.FromRgb(225, 246, 236) : Color.FromRgb(255, 237, 213)
@@ -347,16 +356,17 @@ public partial class MainWindow : Window
     private async void CheckUpdates_Click(object sender, RoutedEventArgs e) => await CheckForUpdatesAsync();
     private async Task CheckForUpdatesAsync()
     {
-        if (checkingUpdates || quitting) return;
-        checkingUpdates = true; CheckUpdatesButton.IsEnabled = false;
+        if (checkingUpdates || quitting || updating) return;
+        checkingUpdates = true; UpdateState();
         UpdateStatus.Text = "正在检查更新…";
         try
         {
             var release = await UpdateChecker.CheckAsync(updateCancellation.Token);
             if (quitting) return;
             bool newer = release.Version > Version.Parse(App.Version);
+            availableRelease = newer ? release : null;
             updatePageUrl = newer ? release.PageUrl : UpdateFeed.ReleasesUrl;
-            UpdateStatus.Text = newer ? $"发现新版本 {release.Version}，当前为 {App.Version}。点击“前往下载页”查看更新。" : $"当前 {App.Version} 已是最新版本。";
+            UpdateStatus.Text = newer ? $"发现新版本 {release.Version}，当前为 {App.Version}。可点击“下载并重启更新”；账号设置会保留。" : $"当前 {App.Version} 已是最新版本。";
             SidebarUpdateButton.Visibility = newer ? Visibility.Visible : Visibility.Collapsed;
         }
         catch (OperationCanceledException) when (quitting) { }
@@ -365,14 +375,37 @@ public partial class MainWindow : Window
             if (!quitting) UpdateStatus.Text = ex is InvalidOperationException or TimeoutException or InvalidDataException
                 ? ex.Message : "未能读取更新信息，请稍后重试或前往下载页查看。";
         }
-        finally { checkingUpdates = false; if (!quitting) CheckUpdatesButton.IsEnabled = true; }
+        finally { checkingUpdates = false; if (!quitting) UpdateState(); }
     }
     private void ShowUpdates_Click(object sender, RoutedEventArgs e)
     {
         Pages.SelectedIndex = 2;
         UpdateStatus.BringIntoView();
     }
-    private void DownloadUpdate_Click(object sender, RoutedEventArgs e)
+    private async void DownloadUpdate_Click(object sender, RoutedEventArgs e)
+    {
+        if (availableRelease == null || updating || checkingUpdates || quitting || grokLoginCancellation != null || busy || stopInProgress) return;
+        string? session = null; bool launched = false;
+        updating = true; installUpdateCancellation = CancellationTokenSource.CreateLinkedTokenSource(updateCancellation.Token); UpdateState();
+        try
+        {
+            session = await UpdateService.PrepareAsync(availableRelease, () => engine.IsRunning, new Progress<string>(text => { if (!quitting) UpdateStatus.Text = text; }), installUpdateCancellation.Token);
+            installUpdateCancellation.Token.ThrowIfCancellationRequested();
+            UpdateService.Launch(session);
+            launched = true;
+            UpdateStatus.Text = "更新已准备好，正在退出并重启…";
+            await QuitAsync();
+        }
+        catch (OperationCanceledException) { if (!quitting) UpdateStatus.Text = "更新已取消，当前版本继续运行。"; }
+        catch (Exception ex) { if (!quitting) UpdateStatus.Text = "更新未完成，当前版本继续运行。" + (ex is IOException or InvalidDataException or InvalidOperationException or TimeoutException or UnauthorizedAccessException ? ex.Message : "请稍后重试。"); }
+        finally
+        {
+            if (!launched && session != null) try { Directory.Delete(session, true); } catch (IOException) { } catch (UnauthorizedAccessException) { }
+            installUpdateCancellation.Dispose(); installUpdateCancellation = null; updating = false; if (!quitting) UpdateState();
+        }
+    }
+    private void CancelUpdate_Click(object sender, RoutedEventArgs e) => installUpdateCancellation?.Cancel();
+    private void OpenReleasePage_Click(object sender, RoutedEventArgs e)
     {
         try { Process.Start(new ProcessStartInfo(updatePageUrl) { UseShellExecute = true }); }
         catch (Exception) { Tell("无法打开浏览器，请访问 GitHub 仓库的 Releases 页面下载新版。"); }

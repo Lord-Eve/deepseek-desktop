@@ -45,8 +45,8 @@ internal static class Program
             "Sidebar version must match the compiled product version.");
         Check(((TextBlock)window.FindName("VersionDetail")).Text == $"桌面端 {version.ProductVersion!.Split('+')[0]} · 协议引擎 ds-free-api v0.5.1",
             "Settings version must match the compiled product version.");
-        Check(((Button)window.FindName("CheckUpdatesButton")).IsEnabled && ((Button)window.FindName("DownloadUpdateButton")).IsEnabled,
-            "Update check and browser download entries must be available without starting the service.");
+        Check(((Button)window.FindName("CheckUpdatesButton")).IsEnabled && !((Button)window.FindName("DownloadUpdateButton")).IsEnabled,
+            "Update checking must be available without starting the service; installation requires a discovered newer release.");
         Check(((Button)window.FindName("SidebarUpdateButton")).Visibility == Visibility.Collapsed,
             "The new-version banner must stay hidden until a newer release is confirmed.");
         Check(window.Icon is BitmapFrame frame && frame.PixelWidth > 0, "Window icon must load from the application resources.");
@@ -123,6 +123,14 @@ internal static class Program
             Check(((FrameworkElement)window.FindName("GrokCodePanel")).Visibility == Visibility.Collapsed && !((Button)window.FindName("SubmitGrokCodeButton")).IsEnabled, "Manual code entry must be hidden and disabled outside a login attempt.");
         }
         int closeAttempts = 0;
+        typeof(MainWindow).GetField("availableRelease", flags)!.SetValue(window, new DesktopRelease(new Version(0, 4, 1), UpdateFeed.ReleasesUrl));
+        typeof(MainWindow).GetMethod("UpdateState", flags)!.Invoke(window, null);
+        Check(((Button)window.FindName("DownloadUpdateButton")).IsEnabled && ((Button)window.FindName("DownloadUpdateButton")).Content.ToString() == "下载并重启更新", "A newer release must enable installation inside the application.");
+        typeof(MainWindow).GetField("updating", flags)!.SetValue(window, true);
+        typeof(MainWindow).GetMethod("UpdateState", flags)!.Invoke(window, null);
+        Check(!((Button)window.FindName("DownloadUpdateButton")).IsEnabled && !((Button)window.FindName("StartButton")).IsEnabled && ((Button)window.FindName("CancelUpdateButton")).Visibility == Visibility.Visible, "An update must prevent duplicate installation and service start while exposing cancellation.");
+        typeof(MainWindow).GetField("updating", flags)!.SetValue(window, false);
+        typeof(MainWindow).GetMethod("UpdateState", flags)!.Invoke(window, null);
         window.Closing += (_, e) => { if (e.Cancel) closeAttempts++; };
         window.Close();
         window.Close();
