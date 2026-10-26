@@ -75,6 +75,7 @@ jobs:
         with:
           name: release-win-x64
           if-no-files-found: error
+          retention-days: 3
           path: |
             dist/*.zip
             dist/*.sha256
