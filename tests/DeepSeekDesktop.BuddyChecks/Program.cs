@@ -10,6 +10,7 @@ using DeepSeekDesktop.Gateway;
 
 int checks = await BuddyAuthChecks.RunAsync();
 checks += await BuddyQueueChecks.RunAsync();
+checks += await BuddyIdentityChecks.RunAsync();
 void Check(bool value, string message) { checks++; if (!value) throw new Exception(message); }
 int Port() { var listener = new TcpListener(IPAddress.Loopback, 0); listener.Start(); int port = ((IPEndPoint)listener.LocalEndpoint).Port; listener.Stop(); return port; }
 Settings Fixture(string provider = Providers.CodeBuddy, int quota = 50) => new()

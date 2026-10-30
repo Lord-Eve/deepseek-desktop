@@ -10,6 +10,15 @@ public sealed record BuddyProduct(string Provider, string Name, string Endpoint,
 {
     public const string ClientVersion = "0.5.0";
     public string Host => new Uri(Endpoint).Host;
+    public string ProtocolVersion => Provider == Providers.CodeBuddy ? "1.106.1" : "5.5.2";
+    public string AttributionName => Provider == Providers.CodeBuddy ? "CodeBuddy" : "WorkBuddy";
+    public string UserAgent(string? model = null)
+    {
+        if (Provider == Providers.CodeBuddy) return "CodeBuddyIDE/" + ProtocolVersion;
+        bool domesticModel = model != null && new[] { "glm-", "hy", "kimi-", "minimax-" }.Any(prefix => model.StartsWith(prefix, StringComparison.Ordinal));
+        string product = domesticModel ? "WorkBuddy" : "WorkBuddy AI";
+        return $"WorkBuddy/{ProtocolVersion} {product}/{ProtocolVersion} CLI/{ProtocolVersion}";
+    }
     public static BuddyProduct ForProvider(string provider) => provider switch
     {
         Providers.CodeBuddy => new(provider, "CodeBuddy（国内版）", "https://copilot.tencent.com", "ide", "codebuddy"),
@@ -20,14 +29,22 @@ public sealed record BuddyProduct(string Provider, string Name, string Endpoint,
     public bool IsLoginHost(string host) => Providers.IsBuddyLoginHost(Provider, host);
     public bool IsCredentialDomain(string host) => Providers.IsBuddyCredentialDomain(Provider, host);
 
-    internal HttpRequestMessage Request(HttpMethod method, string path, Account? account = null, bool control = true)
+    internal HttpRequestMessage Request(HttpMethod method, string path, Account? account = null, bool control = true, string? model = null)
     {
         var request = new HttpRequestMessage(method, Endpoint + path);
-        // Identify this application honestly; do not claim to be an official IDE.
-        request.Headers.UserAgent.ParseAdd("DeepSeekDesktop/" + ClientVersion);
+        // The upstream parses these product/version identifiers (12403 if its UA
+        // cannot be parsed). They describe protocol compatibility, not our app version.
+        request.Headers.UserAgent.ParseAdd(UserAgent(control ? null : model));
+        request.Headers.Add("X-DeepSeekDesktop-Version", ClientVersion);
         request.Headers.Add("X-Domain", Host);
         request.Headers.Add("X-Product-Code", ProductCode);
-        request.Headers.Add("X-Product", control ? "SaaS" : "DeepSeekDesktop");
+        request.Headers.Add("X-Product", control ? "SaaS" : AttributionName);
+        if (!control)
+        {
+            request.Headers.Add("X-IDE-Name", AttributionName);
+            request.Headers.Add("X-IDE-Type", AttributionName);
+            request.Headers.Add("X-IDE-Version", ProtocolVersion);
+        }
         if (account != null)
         {
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", account.AccessToken);
@@ -113,6 +130,7 @@ internal static class BuddyHttp
 
     internal static UpstreamException Failure(BuddyProduct product, int status, int code = 0, bool refresh = false)
     {
+        if (code == 12403) return new UpstreamException(502, product.Name + "上游拒绝客户端版本标识，请更新 DeepSeek Desktop 后重试（上游代码 12403）。");
         string suffix = code == 0 ? "" : $"（上游代码 {code}）";
         int classification = status is >= 200 and < 300 && code is 401 or 403 or 429 ? code : status;
         int mapped = classification is 400 or 402 or 403 or 422 or 426 or 429 ? classification : classification == 401 ? 401 : 502;

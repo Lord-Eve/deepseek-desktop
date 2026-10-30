@@ -209,15 +209,12 @@ public sealed class BuddyClient(HttpClient http, Account account, Action<string,
         string conversation = Guid.NewGuid().ToString("N");
         using var response = await SendAsync(() =>
         {
-            var message = product.Request(HttpMethod.Post, "/v2/chat/completions", account, false);
+            var message = product.Request(HttpMethod.Post, "/v2/chat/completions", account, false, body["model"]?.GetValue<string>());
             message.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("text/event-stream"));
             message.Headers.Add("X-Agent-Purpose", "conversation");
             message.Headers.Add("X-Conversation-ID", conversation);
             message.Headers.Add("X-Conversation-Request-ID", conversation);
             message.Headers.Add("X-Conversation-Message-ID", Guid.NewGuid().ToString("N"));
-            message.Headers.Add("X-IDE-Name", "DeepSeekDesktop");
-            message.Headers.Add("X-IDE-Type", "DeepSeekDesktop");
-            message.Headers.Add("X-IDE-Version", BuddyProduct.ClientVersion);
             message.Content = new StringContent(body.ToJsonString(), Encoding.UTF8, "application/json");
             return message;
         }, cancellation);
