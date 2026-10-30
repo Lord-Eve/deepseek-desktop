@@ -27,8 +27,27 @@ public sealed class Account
 public static class Providers
 {
     public const string DeepSeek = "deepseek", Qingyan = "qingyan", Grok = "grok", CodeBuddy = "codebuddy", WorkBuddy = "workbuddy";
+    private static readonly HashSet<string> CodeBuddyLoginHosts = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "copilot.tencent.com", "www.codebuddy.cn", "codebuddy.cn", "www.workbuddy.cn", "workbuddy.cn"
+    };
+    private static readonly HashSet<string> WorkBuddyLoginHosts = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "www.workbuddy.ai", "workbuddy.ai", "www.codebuddy.ai", "codebuddy.ai"
+    };
+    // A token realm may be an API/auth host without being a browser authorization destination.
+    private static readonly HashSet<string> WorkBuddyAdditionalCredentialDomains = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "auth.workbuddy.ai", "api.workbuddy.ai"
+    };
     public static bool IsBuddy(string provider) => provider is CodeBuddy or WorkBuddy;
     public static bool IsSupported(string provider) => provider is DeepSeek or Qingyan or Grok or CodeBuddy or WorkBuddy;
+    public static bool IsBuddyLoginHost(string provider, string host) => provider switch
+    {
+        CodeBuddy => CodeBuddyLoginHosts.Contains(host), WorkBuddy => WorkBuddyLoginHosts.Contains(host), _ => false
+    };
+    public static bool IsBuddyCredentialDomain(string provider, string host) => IsBuddyLoginHost(provider, host)
+        || provider == WorkBuddy && WorkBuddyAdditionalCredentialDomains.Contains(host);
     public static string DisplayName(string provider) => provider switch
     {
         Qingyan => "智谱清言", Grok => "Grok OAuth", CodeBuddy => "CodeBuddy（国内版）", WorkBuddy => "WorkBuddy（国际版）", _ => "DeepSeek"
@@ -72,8 +91,7 @@ public sealed class Settings
                 if (string.IsNullOrWhiteSpace(a.Id) || a.RefreshToken.Length < 16 || a.RefreshToken.Any(c => c < 33 || c > 126) || a.AccessToken.Any(c => c < 33 || c > 126) || a.TokenExpiresAt < 0 || a.BuddyRefreshExpiresAt < 0)
                     throw new ArgumentException($"账号「{a.Name}」尚未完成有效的{ProviderName}浏览器授权。");
                 if (new[] { a.BuddyUserId, a.BuddyDomain, a.BuddyEnterpriseId, a.BuddyAccountType }.Any(value => value.Length > 4096 || value.Any(c => c < 33 || c > 126))) throw new ArgumentException("CodeBuddy / WorkBuddy 账号信息格式无效，请重新登录。");
-                string[] domains = Provider == Providers.CodeBuddy ? ["copilot.tencent.com", "www.codebuddy.cn", "codebuddy.cn", "www.workbuddy.cn", "workbuddy.cn"] : ["www.workbuddy.ai", "workbuddy.ai", "auth.workbuddy.ai", "api.workbuddy.ai", "www.codebuddy.ai", "codebuddy.ai"];
-                if (a.BuddyDomain.Length > 0 && !domains.Contains(a.BuddyDomain, StringComparer.OrdinalIgnoreCase)) throw new ArgumentException("账号授权所属地区与所选平台不符，请在当前平台重新登录。");
+                if (a.BuddyDomain.Length > 0 && !Providers.IsBuddyCredentialDomain(Provider, a.BuddyDomain)) throw new ArgumentException("账号授权所属地区与所选平台不符，请在当前平台重新登录。");
             }
             return;
         }

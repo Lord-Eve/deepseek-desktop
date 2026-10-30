@@ -68,7 +68,7 @@ public sealed class BuddyClient(HttpClient http, Account account, Action<string,
                 if (!response.IsSuccessStatusCode) throw await BuddyHttp.ErrorAsync(product, response, cancellation);
                 using var json = await BuddyHttp.ReadJsonAsync(response, cancellation);
                 int code = BuddyHttp.Code(json.RootElement);
-                if (!response.IsSuccessStatusCode || code != 0) throw BuddyHttp.Failure(product, (int)response.StatusCode, code);
+                if (code != 0) throw BuddyHttp.Failure(product, (int)response.StatusCode, code);
                 foreach (var model in ParseModels(json.RootElement)) models.TryAdd(model.Id, model);
             }
             catch (UpstreamException ex) when (ex.Status is not (401 or 503)) { failure = ex; }
@@ -144,7 +144,7 @@ public sealed class BuddyClient(HttpClient http, Account account, Action<string,
         if (!response.IsSuccessStatusCode) throw await BuddyHttp.ErrorAsync(product, response, cancellation);
         using var json = await BuddyHttp.ReadJsonAsync(response, cancellation);
         int code = BuddyHttp.Code(json.RootElement);
-        if (!response.IsSuccessStatusCode || code != 0) throw BuddyHttp.Failure(product, (int)response.StatusCode, code);
+        if (code != 0) throw BuddyHttp.Failure(product, (int)response.StatusCode, code);
         var data = BuddyHttp.Data(json.RootElement);
         if (data.ValueKind != JsonValueKind.Object || !data.TryGetProperty("Response", out var outer) || outer.ValueKind != JsonValueKind.Object
             || !outer.TryGetProperty("Data", out var inner) || inner.ValueKind != JsonValueKind.Object
@@ -159,9 +159,14 @@ public sealed class BuddyClient(HttpClient http, Account account, Action<string,
             if (!unit.Equals("credit", StringComparison.OrdinalIgnoreCase) && !unit.Equals("credits", StringComparison.OrdinalIgnoreCase)) continue;
             if (BuddyHttp.Text(package, "Status") == "3") continue;
             if (long.TryParse(BuddyHttp.Text(package, "DeductionEndTime"), out long end) && end > 0 && (end > 1_000_000_000_000 ? end / 1000 : end) <= now.ToUnixTimeSeconds()) continue;
+            if (package.TryGetProperty("ExpiredTime", out var expiryValue) && expiryValue.ValueKind is not (JsonValueKind.String or JsonValueKind.Number or JsonValueKind.Null))
+                throw new UpstreamException(502, product.Name + "积分资源包的到期时间无法识别，余额未知。");
             string expiry = BuddyHttp.Text(package, "ExpiredTime");
-            // Tencent package wall-clock dates without an offset use Beijing time.
-            if (expiry.Length > 0 && TryPackageDate(expiry, out var expires) && expires <= now) continue;
+            if (expiry.Length > 0)
+            {
+                if (!TryPackageDate(expiry, out var expires)) throw new UpstreamException(502, product.Name + "积分资源包的到期时间无法识别，余额未知。");
+                if (expires <= now) continue;
+            }
             string remaining = BuddyHttp.Text(package, "CycleCapacityRemainPrecise");
             if (remaining.Length == 0) remaining = BuddyHttp.Text(package, "CycleCapacityRemain");
             if (!decimal.TryParse(remaining, NumberStyles.Float, CultureInfo.InvariantCulture, out decimal amount) || amount < 0)
@@ -174,9 +179,28 @@ public sealed class BuddyClient(HttpClient http, Account account, Action<string,
 
     private static bool TryPackageDate(string text, out DateTimeOffset value)
     {
-        string normalized = text.Replace(' ', 'T');
-        if (normalized.Length >= 19 && !normalized.EndsWith('Z') && normalized.IndexOf('+', 10) < 0 && normalized.IndexOf('-', 10) < 0) normalized += "+08:00";
-        return DateTimeOffset.TryParse(normalized, CultureInfo.InvariantCulture, DateTimeStyles.None, out value);
+        value = default;
+        string normalized = text.Trim();
+        if (long.TryParse(normalized, NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out long unix))
+        {
+            try
+            {
+                value = unix is > 100_000_000_000 or < -100_000_000_000
+                    ? DateTimeOffset.FromUnixTimeMilliseconds(unix) : DateTimeOffset.FromUnixTimeSeconds(unix);
+                return true;
+            }
+            catch (ArgumentOutOfRangeException) { return false; }
+        }
+        bool offset = normalized.EndsWith('Z') || normalized.EndsWith('z')
+            || normalized.Length > 10 && (normalized.IndexOf('+', 10) >= 0 || normalized.IndexOf('-', 10) >= 0);
+        if (offset) return DateTimeOffset.TryParse(normalized, CultureInfo.InvariantCulture, DateTimeStyles.None, out value);
+        // Date-only and unzoned package timestamps are Beijing wall-clock time;
+        // constructing the offset explicitly avoids the computer's local timezone.
+        normalized = normalized.Replace(' ', 'T');
+        string[] formats = ["yyyy-MM-dd", "yyyy-MM-dd'T'HH:mm", "yyyy-MM-dd'T'HH:mm:ss", "yyyy-MM-dd'T'HH:mm:ss.FFFFFFF"];
+        if (!DateTime.TryParseExact(normalized, formats, CultureInfo.InvariantCulture, DateTimeStyles.None, out var wallTime)) return false;
+        try { value = new DateTimeOffset(DateTime.SpecifyKind(wallTime, DateTimeKind.Unspecified), TimeSpan.FromHours(8)); return true; }
+        catch (ArgumentOutOfRangeException) { return false; }
     }
 
     public async IAsyncEnumerable<JsonObject> EventsAsync(JsonObject request, [EnumeratorCancellation] CancellationToken cancellation)

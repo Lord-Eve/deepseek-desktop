@@ -8,6 +8,8 @@ Buddy 检查覆盖国内／国际端点分流、浏览器授权和取消、令�
 
 WPF 检查不触发 Loaded 或加载真实配置；Windows 存储检查使用独立临时目录。真实网页登录、验证码、模型权限、实际积分扣减及完整客户端人工验收尚未完成。
 
+同分支的 review 修复验证通过 93 项核心检查、166 项 Buddy 检查及 39 项 WPF 检查。新增场景覆盖空结束标记、重复及冲突工具标识、目录缺失或不一致的默认思考档位、Responses 正文和多工具历史的同轮合并、独立排队／执行超时、单次登录轮询超时恢复、日期时区和 Unix 秒／毫秒资源包过滤，以及共享域名规则。Windows DPAPI 与既有 Grok 协议未作改动，复用上述 13 项原生与 53 项 Grok 验证结果。
+
 2026-10-20，基线 `b72864a` 已在 GitHub 的托管 Windows runner 上完成检查和自包含打包。
 
 [Windows CI 完整记录](https://github.com/Lord-Eve/deepseek-desktop/actions/runs/39366023725)

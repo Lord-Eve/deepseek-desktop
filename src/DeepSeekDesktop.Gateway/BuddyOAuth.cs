@@ -22,7 +22,7 @@ public sealed class BuddyOAuth(HttpClient http, string provider)
         if (!started.IsSuccessStatusCode) throw await BuddyHttp.ErrorAsync(product, started, timeout.Token);
         using var startJson = await BuddyHttp.ReadJsonAsync(started, timeout.Token);
         int startCode = BuddyHttp.Code(startJson.RootElement);
-        if (!started.IsSuccessStatusCode || startCode != 0) throw BuddyHttp.Failure(product, (int)started.StatusCode, startCode);
+        if (startCode != 0) throw BuddyHttp.Failure(product, (int)started.StatusCode, startCode);
         var startData = BuddyHttp.Data(startJson.RootElement);
         string state = BuddyHttp.Field(BuddyHttp.Text(startData, "state"), "授权状态", true, 4096);
         string address = BuddyHttp.Text(startData, "authUrl");
@@ -67,6 +67,7 @@ public sealed class BuddyOAuth(HttpClient http, string provider)
             HttpResponseMessage response;
             try { response = await http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellation); }
             catch (HttpRequestException) { continue; }
+            catch (OperationCanceledException) when (!cancellation.IsCancellationRequested) { continue; }
             using (response)
             {
                 JsonDocument json;
@@ -95,7 +96,7 @@ public sealed class BuddyOAuth(HttpClient http, string provider)
         if (!response.IsSuccessStatusCode) throw await BuddyHttp.ErrorAsync(product, response, cancellation, true);
         using var json = await BuddyHttp.ReadJsonAsync(response, cancellation);
         int code = BuddyHttp.Code(json.RootElement);
-        if (!response.IsSuccessStatusCode || code != 0) throw BuddyHttp.Failure(product, (int)response.StatusCode, code, true);
+        if (code != 0) throw BuddyHttp.Failure(product, (int)response.StatusCode, code, true);
         return ParseTokens(BuddyHttp.Data(json.RootElement), account);
     }
 

@@ -108,6 +108,34 @@ foreach (string provider in new[] { Providers.CodeBuddy, Providers.WorkBuddy })
     Invalid(() => buddy.Validate(), "Buddy metadata must not inject HTTP headers.");
 }
 var regional = new Settings { Provider = Providers.CodeBuddy, CodeBuddyModel = "deepseek-v4.1-flash", WorkBuddyModel = "deepseek-v4.1-flash-sg" };
+foreach (var domainCase in new[]
+{
+    (Provider: Providers.CodeBuddy, Host: "copilot.tencent.com", Login: true, Credential: true),
+    (Provider: Providers.CodeBuddy, Host: "www.codebuddy.cn", Login: true, Credential: true),
+    (Provider: Providers.CodeBuddy, Host: "codebuddy.cn", Login: true, Credential: true),
+    (Provider: Providers.CodeBuddy, Host: "www.workbuddy.cn", Login: true, Credential: true),
+    (Provider: Providers.CodeBuddy, Host: "WORKBUDDY.CN", Login: true, Credential: true),
+    (Provider: Providers.WorkBuddy, Host: "www.workbuddy.ai", Login: true, Credential: true),
+    (Provider: Providers.WorkBuddy, Host: "WORKBUDDY.AI", Login: true, Credential: true),
+    (Provider: Providers.WorkBuddy, Host: "www.codebuddy.ai", Login: true, Credential: true),
+    (Provider: Providers.WorkBuddy, Host: "codebuddy.ai", Login: true, Credential: true),
+    (Provider: Providers.WorkBuddy, Host: "auth.workbuddy.ai", Login: false, Credential: true),
+    (Provider: Providers.WorkBuddy, Host: "API.WORKBUDDY.AI", Login: false, Credential: true),
+    (Provider: Providers.CodeBuddy, Host: "www.workbuddy.ai", Login: false, Credential: false),
+    (Provider: Providers.WorkBuddy, Host: "www.codebuddy.cn", Login: false, Credential: false),
+    (Provider: Providers.WorkBuddy, Host: "www.workbuddy.ai.example.test", Login: false, Credential: false),
+    (Provider: Providers.CodeBuddy, Host: "evilcodebuddy.cn", Login: false, Credential: false),
+    (Provider: Providers.WorkBuddy, Host: "https://www.workbuddy.ai", Login: false, Credential: false),
+    (Provider: Providers.Grok, Host: "www.workbuddy.ai", Login: false, Credential: false)
+})
+{
+    Check(Providers.IsBuddyLoginHost(domainCase.Provider, domainCase.Host) == domainCase.Login, "Buddy browser authorization hosts must use exact, regional, case-insensitive allowlists.");
+    Check(Providers.IsBuddyCredentialDomain(domainCase.Provider, domainCase.Host) == domainCase.Credential, "Buddy credential realms must remain distinct from browser destinations.");
+    if (!Providers.IsBuddy(domainCase.Provider)) continue;
+    var domainSettings = new Settings { Provider = domainCase.Provider, Accounts = [new Account { Provider = domainCase.Provider, RefreshToken = "fixture-domain-refresh-0123456789", BuddyDomain = domainCase.Host }] };
+    if (domainCase.Credential) domainSettings.Validate();
+    else Invalid(() => domainSettings.Validate(), "Settings validation must use the same regional credential-realm rules as authentication.");
+}
 regional.Validate(false); regional.Provider = Providers.WorkBuddy;
 Check(regional.Model == "deepseek-v4.1-flash-sg" && regional.CodeBuddyModel == "deepseek-v4.1-flash", "Changing Buddy regions must preserve separate default models.");
 regional.WorkBuddyModel = "model\r\ninvalid"; Invalid(() => regional.Validate(false), "Buddy model IDs must reject header and request injection.");

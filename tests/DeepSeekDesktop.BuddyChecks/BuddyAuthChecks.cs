@@ -1,4 +1,5 @@
 using System.Net;
+using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using DeepSeekDesktop.Core;
@@ -55,6 +56,35 @@ internal static class BuddyAuthChecks
             try { await new BuddyOAuth(http, Providers.WorkBuddy).LoginAsync(_ => { cancel.Cancel(); return Task.CompletedTask; }, cancel.Token); }
             catch (OperationCanceledException) { cancelled = true; }
             Check(cancelled, "Cancelling browser authorization must stop token polling.");
+        }
+
+        int slowPolls = 0;
+        using (var http = new HttpClient(new MockHandler(request => request.RequestUri!.AbsolutePath switch
+        {
+            "/v2/plugin/auth/state" => Json(new { code = 0, data = new { state = "fixture-state", authUrl = "https://www.workbuddy.ai/login" } }),
+            "/v2/plugin/auth/token" when ++slowPolls == 1 => throw new TaskCanceledException("fixture-single-request-timeout"),
+            "/v2/plugin/auth/token" => Json(new { code = 0, data = new { accessToken = "fixture-access-only", refreshToken = "fixture-refresh-only", expiresIn = 1800 } }),
+            "/v2/plugin/login/account" => Json(new { code = 0, data = new { uid = "fixture-user", type = "personal" } }),
+            _ => throw new Exception("Unexpected timeout recovery route.")
+        })))
+        {
+            var recovered = await new BuddyOAuth(http, Providers.WorkBuddy).LoginAsync(_ => Task.CompletedTask, CancellationToken.None);
+            Check(slowPolls == 2 && recovered.UserId == "fixture-user", "A single HTTP polling timeout must not cancel the five-minute browser authorization attempt.");
+        }
+
+        using (var cancel = new CancellationTokenSource())
+        {
+            int cancelledPolls = 0;
+            using var http = new HttpClient(new MockHandler(request =>
+            {
+                if (request.RequestUri!.AbsolutePath == "/v2/plugin/auth/state") return Json(new { code = 0, data = new { state = "fixture-state", authUrl = "https://www.workbuddy.ai/login" } });
+                cancelledPolls++; cancel.Cancel();
+                throw new TaskCanceledException("fixture-external-cancel", null, cancel.Token);
+            }));
+            bool cancelled = false;
+            try { await new BuddyOAuth(http, Providers.WorkBuddy).LoginAsync(_ => Task.CompletedTask, cancel.Token); }
+            catch (OperationCanceledException) { cancelled = true; }
+            Check(cancelled && cancelledPolls == 1, "Cancelling an in-flight poll must terminate authorization without another token or account request.");
         }
 
         var account = Fixture();
@@ -141,6 +171,49 @@ internal static class BuddyAuthChecks
         {
             await RejectAsync(() => new BuddyClient(http, Fixture()).FetchBalanceAsync(CancellationToken.None), 429);
             checks++;
+        }
+        var past = DateTimeOffset.UtcNow.AddDays(-2);
+        object[] expiredValues =
+        [
+            past.ToOffset(TimeSpan.FromHours(8)).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
+            past.ToOffset(TimeSpan.FromHours(8)).ToString("yyyy-MM-dd HH:mm:ss.fff", CultureInfo.InvariantCulture),
+            past.ToUnixTimeSeconds().ToString(CultureInfo.InvariantCulture),
+            past.ToUnixTimeMilliseconds().ToString(CultureInfo.InvariantCulture),
+            past.ToUnixTimeSeconds(), past.ToUnixTimeMilliseconds(),
+            past.ToOffset(TimeSpan.FromHours(-7)).ToString("O", CultureInfo.InvariantCulture)
+        ];
+        foreach (object expired in expiredValues)
+        {
+            var future = DateTimeOffset.UtcNow.AddHours(1);
+            using var http = new HttpClient(new MockHandler(_ => Json(new
+            {
+                code = 0, data = new { Response = new { Data = new { Accounts = new object[]
+                {
+                    new { CapacityUnit = "credit", Status = 0, CycleCapacityRemain = 100, ExpiredTime = expired },
+                    new { CapacityUnit = "credits", Status = 0, CycleCapacityRemain = 7, ExpiredTime = future.ToOffset(TimeSpan.FromHours(-14)).ToString("O", CultureInfo.InvariantCulture) }
+                } } } }
+            })));
+            var balance = await new BuddyClient(http, Fixture()).FetchBalanceAsync(CancellationToken.None);
+            Check(balance.Credits == 7m && balance.ActivePackages == 1, "Expired date-only, Beijing wall-clock, Unix second/millisecond and explicitly offset packages must be excluded; explicit offsets must retain future credit.");
+        }
+        foreach (string invalidExpiry in new[] { "not-a-date", "999999999999999999999", "2026-02-30", "0001-01-01" })
+        {
+            using var http = new HttpClient(new MockHandler(_ => Json(new { code = 0, data = new { Response = new { Data = new { Accounts = new[] { new { CapacityUnit = "credit", Status = 0, CycleCapacityRemain = 100, ExpiredTime = invalidExpiry } } } } } })));
+            await RejectAsync(() => new BuddyClient(http, Fixture()).FetchBalanceAsync(CancellationToken.None), 502);
+            checks++;
+        }
+        var parsePackageDate = typeof(BuddyClient).GetMethod("TryPackageDate", System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic)!;
+        foreach (var example in new[]
+        {
+            (Raw: "2026-11-01", Utc: "2026-10-31T16:00:00Z"),
+            (Raw: "2026-11-01 00:00", Utc: "2026-10-31T16:00:00Z"),
+            (Raw: "2026-11-01T00:00:00.123", Utc: "2026-10-31T16:00:00.123Z"),
+            (Raw: "2026-11-01T00:00:00-07:00", Utc: "2026-11-01T07:00:00Z")
+        })
+        {
+            object?[] values = [example.Raw, default(DateTimeOffset)];
+            bool parsed = (bool)parsePackageDate.Invoke(null, values)!;
+            Check(parsed && (DateTimeOffset)values[1]! == DateTimeOffset.Parse(example.Utc, CultureInfo.InvariantCulture), "Package dates must map to the expected instant independently of the host timezone, retaining explicit offsets.");
         }
         return checks;
     }

@@ -17,6 +17,7 @@ public sealed class BuddyGateway : IAsyncDisposable
     private readonly HttpClient http;
     private readonly BuddyClient client;
     private readonly Action<string>? log;
+    private readonly TimeSpan requestTimeout, queueTimeout;
     private readonly SemaphoreSlim gate = new(1, 1);
     private readonly CancellationTokenSource lifetime = new();
     private readonly Queue<DateTimeOffset> requests = new();
@@ -25,11 +26,15 @@ public sealed class BuddyGateway : IAsyncDisposable
     private bool ready;
     private int state, total, success, failed, waiting;
     public bool IsRunning => app != null && !lifetime.IsCancellationRequested;
-    public BuddyGateway(Settings settings, Action<string, BuddyTokens>? persist = null, Action<string>? log = null, HttpMessageHandler? handler = null)
+    public BuddyGateway(Settings settings, Action<string, BuddyTokens>? persist = null, Action<string>? log = null, HttpMessageHandler? handler = null, TimeSpan? requestTimeout = null, TimeSpan? queueTimeout = null)
     {
         settings.Validate();
         if (settings.Provider is not (Providers.CodeBuddy or Providers.WorkBuddy)) throw new ArgumentException("Buddy 服务需要选择 CodeBuddy 国内版或 WorkBuddy 国际版。");
         this.settings = JsonSerializer.Deserialize<Settings>(JsonSerializer.Serialize(settings))!; this.log = log;
+        this.requestTimeout = requestTimeout ?? TimeSpan.FromMinutes(3);
+        this.queueTimeout = queueTimeout ?? TimeSpan.FromMinutes(3);
+        if (this.requestTimeout <= TimeSpan.Zero || this.requestTimeout.TotalMilliseconds > uint.MaxValue - 1 || this.queueTimeout <= TimeSpan.Zero || this.queueTimeout.TotalMilliseconds > uint.MaxValue - 1)
+            throw new ArgumentOutOfRangeException(nameof(requestTimeout), "请求和排队超时必须为有效的正时间。");
         handler ??= new HttpClientHandler { AllowAutoRedirect = false, UseCookies = false, UseProxy = settings.ProxyUrl.Length > 0, Proxy = settings.ProxyUrl.Length > 0 ? new WebProxy(settings.ProxyUrl) : null };
         http = new HttpClient(handler) { Timeout = TimeSpan.FromMinutes(3) };
         client = new(http, this.settings.Accounts.Single(a => a.Provider == settings.Provider && a.Enabled), persist);
@@ -59,7 +64,7 @@ public sealed class BuddyGateway : IAsyncDisposable
     public Task<BuddyBalance> BalanceAsync(CancellationToken cancellation = default) => client.FetchBalanceAsync(cancellation);
     private async Task HandleAsync(HttpContext context)
     {
-        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(context.RequestAborted, lifetime.Token); cancellation.CancelAfter(TimeSpan.FromMinutes(3));
+        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(context.RequestAborted, lifetime.Token); cancellation.CancelAfter(queueTimeout);
         bool acquired = false, counted = false;
         try
         {
@@ -81,6 +86,9 @@ public sealed class BuddyGateway : IAsyncDisposable
             if (Volatile.Read(ref state) == 3) { await ErrorAsync(context, 503, "Buddy 授权已失效，请停止服务并重新登录。", cancellation.Token); return; }
             if (Interlocked.Increment(ref waiting) > 8) { Interlocked.Decrement(ref waiting); await ErrorAsync(context, 429, "Buddy 请求队列已满。", cancellation.Token); return; }
             try { await gate.WaitAsync(cancellation.Token); acquired = true; } finally { Interlocked.Decrement(ref waiting); }
+            // Queuing must not consume the upstream request's execution window.
+            cancellation.Token.ThrowIfCancellationRequested();
+            cancellation.CancelAfter(requestTimeout);
             if (Volatile.Read(ref state) == 3) { await ErrorAsync(context, 503, "Buddy 授权已失效，请停止服务并重新登录。", cancellation.Token); return; }
             while (requests.TryPeek(out var old) && old <= DateTimeOffset.UtcNow.AddHours(-1)) requests.Dequeue();
             if (requests.Count >= settings.HourlyQuota) { await ErrorAsync(context, 429, "已达到本机每账号每小时请求上限。", cancellation.Token); return; }
@@ -135,7 +143,7 @@ public sealed class BuddyGateway : IAsyncDisposable
             if (counted) { Interlocked.Increment(ref failed); Volatile.Write(ref state, ex is UpstreamException { Status: 401 } ? 3 : ex is OperationCanceledException ? 0 : 2); }
             if (context.RequestAborted.IsCancellationRequested || lifetime.IsCancellationRequested) return;
             int status = ex switch { UpstreamException upstream => upstream.Status, BadHttpRequestException bad => bad.StatusCode, JsonException or ArgumentException or InvalidOperationException or KeyNotFoundException or FormatException => 400, OperationCanceledException => 504, _ => 502 };
-            string message = ex switch { UpstreamException or ArgumentException => ex.Message, OperationCanceledException => "Buddy 请求超时。", JsonException or InvalidOperationException or KeyNotFoundException or FormatException => "请求字段或 JSON 格式无效。", BadHttpRequestException => "请求体无效或超过 1 MB。", _ => "Buddy 连接失败，请检查网络。" };
+            string message = ex switch { UpstreamException or ArgumentException => ex.Message, OperationCanceledException => acquired ? "Buddy 上游请求超时。" : "Buddy 排队或读取请求超时。", JsonException or InvalidOperationException or KeyNotFoundException or FormatException => "请求字段或 JSON 格式无效。", BadHttpRequestException => "请求体无效或超过 1 MB。", _ => "Buddy 连接失败，请检查网络。" };
             if (counted) log?.Invoke(message);
             try { await ErrorAsync(context, status, message, context.RequestAborted); } catch (Exception failure) when (failure is IOException or OperationCanceledException) { }
         }

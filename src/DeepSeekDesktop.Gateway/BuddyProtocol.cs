@@ -34,6 +34,14 @@ public static class BuddyProtocol
     }
     private static bool Name(string value) => Regex.IsMatch(value, "^[A-Za-z0-9_-]{1,64}$", RegexOptions.CultureInvariant);
     private static bool Identifier(string value) => value.Length is > 0 and <= 256 && value.All(c => char.IsAsciiLetterOrDigit(c) || "_-.".Contains(c));
+    private static bool KnownEffort(string value) => value is "none" or "low" or "medium" or "high" or "xhigh" or "max";
+    private static string? DefaultEffort(BuddyModel model, string[] supported)
+    {
+        string? preferred = model.DefaultReasoningEffort;
+        if (preferred != null && KnownEffort(preferred) && (supported.Length == 0 || supported.Contains(preferred, StringComparer.Ordinal))) return preferred;
+        if (supported.Contains("high", StringComparer.Ordinal)) return "high";
+        return supported.FirstOrDefault();
+    }
     internal static string Arguments(string value)
     {
         if (value.Length > 262144) throw new ArgumentException("工具参数过大。");
@@ -136,19 +144,32 @@ public static class BuddyProtocol
             if (options["include_usage"] != null) options["include_usage"]!.GetValue<bool>();
         }
         request.Remove("stream_options");
+        bool deepseek = model.StartsWith("deepseek", StringComparison.OrdinalIgnoreCase);
+        string[] supported = (info.ReasoningEfforts ?? []).Where(KnownEffort).Distinct(StringComparer.Ordinal).ToArray();
         string? effort = request["reasoning_effort"]?.GetValue<string>();
+        if (effort != null && !KnownEffort(effort)) throw new ArgumentException("当前模型不支持指定的思考档位。");
         if (request["thinking"] != null)
         {
             if (request["thinking"] is not JsonObject thinking || thinking.Count != 1 || thinking["type"]?.ToString() is not ("enabled" or "disabled")) throw new ArgumentException("thinking 仅支持 type=enabled 或 disabled。");
+            if (!deepseek) throw new ArgumentException("当前适配仅为 DeepSeek 模型提供显式思考开关。");
             string type = thinking["type"]!.ToString();
             if (effort != null && (type == "disabled") != (effort == "none")) throw new ArgumentException("thinking 与 reasoning_effort 冲突。");
-            if (effort == null) effort = type == "disabled" ? "none" : info.DefaultReasoningEffort ?? "high";
+            if (effort == null)
+            {
+                if (type == "disabled") effort = "none";
+                else
+                {
+                    string[] enabledEfforts = supported.Where(value => value != "none").ToArray();
+                    effort = DefaultEffort(info, enabledEfforts);
+                    if (effort == "none") effort = null;
+                    if (effort == null) effort = supported.Length == 0 ? "high" : throw new ArgumentException("当前模型未声明可启用的思考档位。");
+                }
+            }
         }
-        if (effort == null && model.StartsWith("deepseek", StringComparison.OrdinalIgnoreCase)) effort = info.DefaultReasoningEffort ?? "high";
+        if (effort == null && deepseek) effort = DefaultEffort(info, supported);
         if (effort is not null)
         {
-            if (effort != "none" && !(info.ReasoningEfforts ?? ["low", "medium", "high", "xhigh", "max"]).Contains(effort, StringComparer.Ordinal)) throw new ArgumentException("当前模型不支持指定的思考档位。");
-            bool deepseek = model.StartsWith("deepseek", StringComparison.OrdinalIgnoreCase);
+            if (effort != "none" && supported.Length > 0 && !supported.Contains(effort, StringComparer.Ordinal)) throw new ArgumentException("当前模型不支持指定的思考档位。");
             if (deepseek) request["thinking"] = new JsonObject { ["type"] = effort == "none" ? "disabled" : "enabled" };
             else if (request["thinking"] != null || effort == "none") throw new ArgumentException("当前适配仅为 DeepSeek 模型提供显式思考开关。");
             if (effort == "none") request.Remove("reasoning_effort"); else request["reasoning_effort"] = effort;
@@ -171,6 +192,21 @@ public static class BuddyProtocol
         JsonArray turns = source["input"] is JsonValue value && value.TryGetValue<string>(out var prompt) ? new JsonArray(new JsonObject { ["role"] = "user", ["content"] = prompt }) : source["input"] as JsonArray ?? throw new ArgumentException("Responses input 应为文本或消息数组。");
         if (turns.Count == 0) throw new ArgumentException("Responses input 不能为空。");
         string reasoning = "";
+        JsonObject? assistantRound = null;
+        JsonObject AssistantRound()
+        {
+            if (assistantRound == null)
+            {
+                assistantRound = new JsonObject { ["role"] = "assistant", ["content"] = null, ["reasoning_content"] = reasoning };
+                reasoning = ""; messages.Add(assistantRound);
+            }
+            return assistantRound;
+        }
+        void EndAssistantRound()
+        {
+            if (reasoning.Length > 0) throw new ArgumentException("思考上下文后缺少对应的助手消息或工具调用。");
+            assistantRound = null;
+        }
         foreach (var node in turns)
         {
             if (node is not JsonObject turn) throw new ArgumentException("Responses input 项无效。");
@@ -178,24 +214,31 @@ public static class BuddyProtocol
             if (type == "reasoning")
             {
                 if (turn["encrypted_content"] != null) throw new ArgumentException("Buddy 不支持其他供应商的加密思考上下文。");
-                reasoning += Text(turn["summary"], "summary_text"); continue;
+                string part = Text(turn["summary"], "summary_text");
+                if (assistantRound == null) reasoning += part;
+                else assistantRound["reasoning_content"] = (assistantRound["reasoning_content"]?.GetValue<string>() ?? "") + part;
+                continue;
             }
             if (type == "function_call")
             {
                 var call = new JsonObject { ["id"] = turn["call_id"]?.DeepClone(), ["type"] = "function", ["function"] = new JsonObject { ["name"] = turn["name"]?.DeepClone(), ["arguments"] = turn["arguments"]?.DeepClone() } };
-                if (messages.LastOrDefault() is JsonObject previous && previous["role"]?.ToString() == "assistant" && previous["tool_calls"] is JsonArray calls) calls.Add(call);
-                else messages.Add(new JsonObject { ["role"] = "assistant", ["content"] = null, ["reasoning_content"] = reasoning, ["tool_calls"] = new JsonArray(call) });
-                reasoning = ""; continue;
+                var assistant = AssistantRound();
+                if (assistant["tool_calls"] is not JsonArray calls) { calls = new JsonArray(); assistant["tool_calls"] = calls; }
+                calls.Add(call); continue;
             }
             if (type == "function_call_output")
             {
+                EndAssistantRound();
                 messages.Add(new JsonObject { ["role"] = "tool", ["tool_call_id"] = turn["call_id"]?.DeepClone(), ["content"] = Text(turn["output"], "input_text", "text") }); continue;
             }
             if (type is not (null or "message")) throw new ArgumentException("Responses input 包含暂不支持的项目类型。");
             string role = turn["role"]?.GetValue<string>() ?? "";
-            var message = new JsonObject { ["role"] = role, ["content"] = Text(turn["content"], "input_text", "output_text", "text") };
-            if (role == "assistant") { message["reasoning_content"] = reasoning; reasoning = ""; }
-            messages.Add(message);
+            string content = Text(turn["content"], "input_text", "output_text", "text");
+            if (role == "assistant")
+            {
+                var assistant = AssistantRound(); assistant["content"] = (assistant["content"]?.GetValue<string>() ?? "") + content;
+            }
+            else { EndAssistantRound(); messages.Add(new JsonObject { ["role"] = role, ["content"] = content }); }
         }
         if (reasoning.Length > 0) throw new ArgumentException("思考上下文后缺少对应的助手消息或工具调用。");
         if (source["tools"] != null)
@@ -214,7 +257,7 @@ public static class BuddyProtocol
             if (selected["type"]?.ToString() != "function") throw new ArgumentException("Responses tool_choice 仅支持 function。");
             request["tool_choice"] = new JsonObject { ["type"] = "function", ["function"] = new JsonObject { ["name"] = selected["name"]?.DeepClone() } };
         }
-        else request["tool_choice"] = source["tool_choice"]?.DeepClone();
+        else if (source["tool_choice"] != null) request["tool_choice"] = source["tool_choice"]!.DeepClone();
         foreach (string field in new[] { "parallel_tool_calls", "temperature", "top_p" }) if (source[field] != null) request[field] = source[field]!.DeepClone();
         if (source["max_output_tokens"] != null) request["max_tokens"] = source["max_output_tokens"]!.DeepClone();
         if (source["reasoning"] != null)
@@ -263,12 +306,14 @@ internal sealed class BuddyResult
                         if (node is not JsonObject call || call["index"] is not JsonValue index || !index.TryGetValue<int>(out int key) || key is < 0 or >= 16) throw new JsonException();
                         if (!calls.TryGetValue(key, out var state)) { state = new(); calls.Add(key, state); }
                         if (call["type"]?.ToString() is not (null or "function")) throw new JsonException();
-                        state.Id += call["id"]?.GetValue<string>() ?? "";
-                        state.Name += call["function"]?["name"]?.GetValue<string>() ?? "";
+                        string id = call["id"]?.GetValue<string>() ?? "", name = call["function"]?["name"]?.GetValue<string>() ?? "";
+                        if (id.Length > 0) { if (state.Id.Length > 0 && state.Id != id) throw new JsonException(); state.Id = id; }
+                        if (name.Length > 0) { if (state.Name.Length > 0 && state.Name != name) throw new JsonException(); state.Name = name; }
                         state.Arguments.Append(call["function"]?["arguments"]?.GetValue<string>() ?? "");
                         if (state.Id.Length > 256 || state.Name.Length > 64 || state.Arguments.Length > 262144) throw new JsonException();
                     }
-                if (item["finish_reason"] != null) { if (finish != null) throw new JsonException(); finish = item["finish_reason"]!.GetValue<string>(); }
+                string? reason = item["finish_reason"]?.GetValue<string>();
+                if (!string.IsNullOrEmpty(reason)) { if (finish != null) throw new JsonException(); finish = reason; }
             }
             return (deltaText, deltaReasoning);
         }

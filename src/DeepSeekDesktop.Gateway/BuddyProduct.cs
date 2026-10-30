@@ -17,12 +17,8 @@ public sealed record BuddyProduct(string Provider, string Name, string Endpoint,
         _ => throw new ArgumentException("请选择 CodeBuddy 国内版或 WorkBuddy 国际版。")
     };
 
-    public bool IsLoginHost(string host) => Provider == Providers.CodeBuddy
-        ? host is "www.codebuddy.cn" or "codebuddy.cn" or "copilot.tencent.com" or "www.workbuddy.cn" or "workbuddy.cn"
-        : host is "www.workbuddy.ai" or "workbuddy.ai" or "auth.workbuddy.ai" or "www.codebuddy.ai" or "codebuddy.ai";
-
-    public bool IsCredentialDomain(string host) => IsLoginHost(host.ToLowerInvariant())
-        || Provider == Providers.WorkBuddy && host.Equals("api.workbuddy.ai", StringComparison.OrdinalIgnoreCase);
+    public bool IsLoginHost(string host) => Providers.IsBuddyLoginHost(Provider, host);
+    public bool IsCredentialDomain(string host) => Providers.IsBuddyCredentialDomain(Provider, host);
 
     internal HttpRequestMessage Request(HttpMethod method, string path, Account? account = null, bool control = true)
     {
