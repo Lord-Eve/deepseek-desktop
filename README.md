@@ -4,9 +4,9 @@
 
 面向 Windows 11 x64 的非官方桌面客户端，支持 DeepSeek、智谱清言、Grok OAuth（CLI 通道）、CodeBuddy（国内版）与 WorkBuddy（国际版）。使用原生窗口管理账号与服务，在 `127.0.0.1` 提供 OpenAI 兼容 API，可供 Cherry Studio、AstrBot、Eve pet、tibo watch 等客户端配置接入。取得初始登录授权后，无需一直打开浏览器，也无需安装 Node、Python 或 .NET 运行时。
 
-**当前版本**：0.4.1，DeepSeek 引擎固定为 ds-free-api v0.5.1。桌面层采用 WPF/.NET 8，清言与 Grok 使用独立 C# 适配。用户已确认清言 API 与工具调用成功；新增 Grok 已通过模拟 OAuth/Exa 闭环检查，真实模型调用与额度仍待本机验证。
+**当前版本**：0.5.0，DeepSeek 引擎固定为 ds-free-api v0.5.1。桌面层采用 WPF/.NET 8，清言、Grok、CodeBuddy 与 WorkBuddy 使用原生 C# 适配。用户已确认清言 API 与工具调用成功；其余新增通道通过模拟协议检查，真实登录、模型调用与额度仍待本机验证。见 [0.5.0 发布说明](docs/releases/v0.5.0.md)。
 
-## 使用 CodeBuddy / WorkBuddy（原生接入，未发布）
+## 使用 CodeBuddy / WorkBuddy（原生接入）
 
 停止服务后选择“CodeBuddy（国内版）”或“WorkBuddy（国际版）”，在账号管理填写名称并点击浏览器登录。国内个人版使用微信或手机号，国际版支持 Google 账号授权；在官方网页完成登录后返回程序，授权成功即可关闭网页。日常使用只运行本程序，无需安装或运行 WorkBuddy、CodeBuddy、DeepSeek Harness 或 Node。
 

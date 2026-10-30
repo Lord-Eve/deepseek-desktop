@@ -1,6 +1,6 @@
 # 验证记录
 
-## CodeBuddy / WorkBuddy 原生接入（未发布）
+## v0.5.0 CodeBuddy / WorkBuddy 原生接入
 
 2026-10-29（America/Los_Angeles），分支 `feat/native-buddy` 在本机 Windows 通过：54 项核心检查、13 项 Windows DPAPI / ACL / Job 检查、107 项 Buddy 认证 / 协议 / 本地 API / 模拟工具闭环检查、39 项 WPF 检查，以及 53 项既有 Grok 契约检查。WPF 项目同时完成 Release 编译，零警告、零错误。
 
