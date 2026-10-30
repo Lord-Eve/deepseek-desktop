@@ -119,7 +119,7 @@ foreach (var domainCase in new[]
     (Provider: Providers.WorkBuddy, Host: "WORKBUDDY.AI", Login: true, Credential: true),
     (Provider: Providers.WorkBuddy, Host: "www.codebuddy.ai", Login: true, Credential: true),
     (Provider: Providers.WorkBuddy, Host: "codebuddy.ai", Login: true, Credential: true),
-    (Provider: Providers.WorkBuddy, Host: "auth.workbuddy.ai", Login: false, Credential: true),
+    (Provider: Providers.WorkBuddy, Host: "auth.workbuddy.ai", Login: true, Credential: true),
     (Provider: Providers.WorkBuddy, Host: "API.WORKBUDDY.AI", Login: false, Credential: true),
     (Provider: Providers.CodeBuddy, Host: "www.workbuddy.ai", Login: false, Credential: false),
     (Provider: Providers.WorkBuddy, Host: "www.codebuddy.cn", Login: false, Credential: false),

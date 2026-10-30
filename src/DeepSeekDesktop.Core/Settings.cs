@@ -33,12 +33,12 @@ public static class Providers
     };
     private static readonly HashSet<string> WorkBuddyLoginHosts = new(StringComparer.OrdinalIgnoreCase)
     {
-        "www.workbuddy.ai", "workbuddy.ai", "www.codebuddy.ai", "codebuddy.ai"
+        "www.workbuddy.ai", "workbuddy.ai", "auth.workbuddy.ai", "www.codebuddy.ai", "codebuddy.ai"
     };
-    // A token realm may be an API/auth host without being a browser authorization destination.
+    // A token realm may be an API host without being a browser authorization destination.
     private static readonly HashSet<string> WorkBuddyAdditionalCredentialDomains = new(StringComparer.OrdinalIgnoreCase)
     {
-        "auth.workbuddy.ai", "api.workbuddy.ai"
+        "api.workbuddy.ai"
     };
     public static bool IsBuddy(string provider) => provider is CodeBuddy or WorkBuddy;
     public static bool IsSupported(string provider) => provider is DeepSeek or Qingyan or Grok or CodeBuddy or WorkBuddy;
