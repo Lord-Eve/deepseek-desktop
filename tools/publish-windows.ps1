@@ -26,6 +26,8 @@ try {
         if ($LASTEXITCODE -ne 0) { throw 'Qingyan gateway checks failed.' }
         dotnet run --project tests/DeepSeekDesktop.GrokChecks -c Release
         if ($LASTEXITCODE -ne 0) { throw 'Grok OAuth and protocol checks failed.' }
+        dotnet run --project tests/DeepSeekDesktop.BuddyChecks -c Release
+        if ($LASTEXITCODE -ne 0) { throw 'CodeBuddy and WorkBuddy protocol checks failed.' }
         dotnet run --project tests/DeepSeekDesktop.UiChecks -c Release
         if ($LASTEXITCODE -ne 0) { throw 'WPF UI checks failed.' }
         dotnet run --project tests/DeepSeekDesktop.UpdateChecks -c Release

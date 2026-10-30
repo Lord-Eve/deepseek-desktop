@@ -90,4 +90,25 @@ grok.Accounts.Add(new Account { Provider = Providers.Grok, RefreshToken = "fixtu
 Invalid(() => grok.Validate(), "The initial Grok adapter must not mix concurrent active accounts and replay contexts.");
 grok.Accounts[1].Enabled = false; grok.Validate();
 grok.Accounts[0].AccessToken = "injected\r\nheader"; Invalid(() => grok.Validate(), "Access tokens must not inject headers.");
+foreach (string provider in new[] { Providers.CodeBuddy, Providers.WorkBuddy })
+{
+    var buddy = new Settings { Provider = provider, Accounts = [new Account { Provider = provider, Name = "Buddy fixture", AccessToken = "fixture-buddy-access-0123456789", RefreshToken = "fixture-buddy-refresh-0123456789", TokenExpiresAt = 1234567890, BuddyUserId = "fixture-buddy-user", BuddyDomain = provider == Providers.CodeBuddy ? "www.codebuddy.cn" : "www.workbuddy.ai", BuddyAccountType = "personal", BuddyRefreshExpiresAt = 2234567890 }] };
+    buddy.Validate();
+    Check(buddy.Model == "deepseek-v4.1-flash" && buddy.ProviderName.Contains(provider == Providers.CodeBuddy ? "国内" : "国际"), "Buddy regions must have distinct identities and their own default models.");
+    var restored = JsonSerializer.Deserialize<Settings>(JsonSerializer.Serialize(buddy))!;
+    Check(restored.Accounts[0].BuddyUserId == "fixture-buddy-user" && restored.Accounts[0].BuddyRefreshExpiresAt == 2234567890 && restored.Accounts[0].Id == buddy.Accounts[0].Id, "Buddy account metadata and expiry must survive settings serialization.");
+    Check(!EngineConfig.Render(buddy, "fixture-admin").Contains("fixture-buddy"), "Buddy credentials must not enter the Rust engine configuration.");
+    Check(!LogRedactor.Redact("credential=fixture-buddy-access-0123456789 user=fixture-buddy-user", buddy, "").Contains("fixture-buddy"), "Buddy access tokens and user IDs must be hidden in logs.");
+    buddy.Accounts.Add(new Account { Provider = provider, RefreshToken = "fixture-second-refresh-0123456789" });
+    Invalid(() => buddy.Validate(), "The Buddy adapter must not mix simultaneously enabled accounts.");
+    buddy.Accounts[1].Enabled = false; buddy.Validate();
+    buddy.Accounts[0].BuddyDomain = provider == Providers.CodeBuddy ? "www.workbuddy.ai" : "www.codebuddy.cn";
+    Invalid(() => buddy.Validate(), "Buddy authorization metadata must not cross regions.");
+    buddy.Accounts[0].BuddyDomain = ""; buddy.Accounts[0].BuddyUserId = "injected\r\nheader";
+    Invalid(() => buddy.Validate(), "Buddy metadata must not inject HTTP headers.");
+}
+var regional = new Settings { Provider = Providers.CodeBuddy, CodeBuddyModel = "deepseek-v4.1-flash", WorkBuddyModel = "deepseek-v4.1-flash-sg" };
+regional.Validate(false); regional.Provider = Providers.WorkBuddy;
+Check(regional.Model == "deepseek-v4.1-flash-sg" && regional.CodeBuddyModel == "deepseek-v4.1-flash", "Changing Buddy regions must preserve separate default models.");
+regional.WorkBuddyModel = "model\r\ninvalid"; Invalid(() => regional.Validate(false), "Buddy model IDs must reject header and request injection.");
 Console.WriteLine($"PASS: {assertions} core checks");

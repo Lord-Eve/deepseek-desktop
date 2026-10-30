@@ -1,5 +1,6 @@
 using System;
 using System.Diagnostics;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Net;
@@ -31,12 +32,14 @@ internal sealed class EngineHost : IDisposable
     private Settings? active;
     private QingyanGateway? qingyan;
     private GrokGateway? grok;
-    public bool IsRunning => grok?.IsRunning == true || qingyan?.IsRunning == true || spawned && process is { HasExited: false };
+    private BuddyGateway? buddy;
+    public bool IsRunning => buddy?.IsRunning == true || grok?.IsRunning == true || qingyan?.IsRunning == true || spawned && process is { HasExited: false };
     public bool IsReady { get; private set; }
     public string? BaseUrl => active?.BaseUrl;
     public event Action<string>? Log;
     public event Action<string, string>? RefreshTokenChanged;
     public event Action<string, GrokTokens>? GrokTokensChanged;
+    public event Action<string, BuddyTokens>? BuddyTokensChanged;
 
     public async Task StartAsync(Settings settings)
     {
@@ -46,6 +49,13 @@ internal sealed class EngineHost : IDisposable
             if (IsRunning) throw new InvalidOperationException("服务已在运行。");
             await CleanupAsync();
             settings.Validate();
+            if (settings.Provider is Providers.CodeBuddy or Providers.WorkBuddy)
+            {
+                active = JsonSerializer.Deserialize<Settings>(JsonSerializer.Serialize(settings))!;
+                starting = new CancellationTokenSource(TimeSpan.FromMinutes(3));
+                buddy = new BuddyGateway(active, (id, tokens) => BuddyTokensChanged?.Invoke(id, tokens), line => Log?.Invoke(line));
+                await buddy.StartAsync(starting.Token); IsReady = true; return;
+            }
             if (settings.Provider == Providers.Grok)
             {
                 active = JsonSerializer.Deserialize<Settings>(JsonSerializer.Serialize(settings))!;
@@ -125,6 +135,7 @@ internal sealed class EngineHost : IDisposable
     private async Task CleanupAsync()
     {
         IsReady = false;
+        if (buddy != null) { await buddy.DisposeAsync(); buddy = null; }
         if (grok != null) { await grok.DisposeAsync(); grok = null; }
         if (qingyan != null) { await qingyan.DisposeAsync(); qingyan = null; }
         if (process != null)
@@ -175,6 +186,7 @@ internal sealed class EngineHost : IDisposable
     public async Task<JsonElement> AdminAsync(string resource)
     {
         if (resource is not ("stats" or "status")) throw new ArgumentException("不支持的状态资源。");
+        if (buddy != null) return buddy.Status(resource);
         if (grok != null) return grok.Status(resource);
         if (qingyan != null) return qingyan.Status(resource);
         using var request = Request(HttpMethod.Get, "/admin/api/" + resource, true);
@@ -195,7 +207,7 @@ internal sealed class EngineHost : IDisposable
         if (!response.IsSuccessStatusCode)
         {
             string detail = "请查看运行日志。";
-            if (active!.Provider == Providers.Grok)
+            if (active!.Provider is Providers.Grok or Providers.CodeBuddy or Providers.WorkBuddy)
             {
                 try
                 {
@@ -211,11 +223,17 @@ internal sealed class EngineHost : IDisposable
         return doc.RootElement.GetProperty("choices")[0].GetProperty("message").GetProperty("content").GetString() ?? "（返回内容为空）";
     }
 
-    internal static object TestRequest(Settings settings) => new
+    internal static object TestRequest(Settings settings)
     {
-        model = settings.Model, messages = new[] { new { role = "user", content = "请仅回复：连接成功" } }, stream = false,
-        reasoning_effort = settings.Provider == Providers.Grok ? "low" : "none", web_search_options = new { search_context_size = "none" }
-    };
+        var request = new Dictionary<string, object>
+        {
+            ["model"] = settings.Model, ["messages"] = new[] { new { role = "user", content = "请仅回复：连接成功" } },
+            ["stream"] = false, ["web_search_options"] = new { search_context_size = "none" }
+        };
+        // Buddy's catalog decides the default: some non-DeepSeek models cannot disable reasoning.
+        if (!Providers.IsBuddy(settings.Provider)) request["reasoning_effort"] = settings.Provider == Providers.Grok ? "low" : "none";
+        return request;
+    }
 
     public void Dispose()
     {

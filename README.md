@@ -2,9 +2,17 @@
 
 [私有仓库](https://github.com/Lord-Eve/deepseek-desktop) · [预发布下载](https://github.com/Lord-Eve/deepseek-desktop/releases) · [Windows 构建记录](https://github.com/Lord-Eve/deepseek-desktop/actions/workflows/windows.yml)
 
-面向 Windows 11 x64 的非官方桌面客户端，支持 DeepSeek、智谱清言与 Grok OAuth（CLI 通道）。使用原生窗口管理账号与服务，在 `127.0.0.1` 提供 OpenAI 兼容 API，可供 Cherry Studio、AstrBot、Eve pet、tibo watch 等客户端配置接入。取得初始登录授权后，无需一直打开浏览器，也无需安装 Node、Python 或 .NET 运行时。
+面向 Windows 11 x64 的非官方桌面客户端，支持 DeepSeek、智谱清言、Grok OAuth（CLI 通道）、CodeBuddy（国内版）与 WorkBuddy（国际版）。使用原生窗口管理账号与服务，在 `127.0.0.1` 提供 OpenAI 兼容 API，可供 Cherry Studio、AstrBot、Eve pet、tibo watch 等客户端配置接入。取得初始登录授权后，无需一直打开浏览器，也无需安装 Node、Python 或 .NET 运行时。
 
 **当前版本**：0.4.1，DeepSeek 引擎固定为 ds-free-api v0.5.1。桌面层采用 WPF/.NET 8，清言与 Grok 使用独立 C# 适配。用户已确认清言 API 与工具调用成功；新增 Grok 已通过模拟 OAuth/Exa 闭环检查，真实模型调用与额度仍待本机验证。
+
+## 使用 CodeBuddy / WorkBuddy（原生接入，未发布）
+
+停止服务后选择“CodeBuddy（国内版）”或“WorkBuddy（国际版）”，在账号管理填写名称并点击浏览器登录。国内个人版使用微信或手机号，国际版支持 Google 账号授权；在官方网页完成登录后返回程序，授权成功即可关闭网页。日常使用只运行本程序，无需安装或运行 WorkBuddy、CodeBuddy、DeepSeek Harness 或 Node。
+
+两个区域分别保存授权、模型和账号，不能互换令牌；同一平台每次启用一个账号。凭据按当前 Windows 用户使用 DPAPI 加密保存，过期时自动续期，无法续期时提示重新登录。客户端继续使用程序显示的本地地址和 API Key，默认测试模型为 `deepseek-v4.1-flash`；先主动刷新模型目录，再按自己账号的权限选择。模型目录和积分查询不发送对话；“发送测试消息”会真实调用模型并可能消耗额度。
+
+支持范围、使用步骤和检查边界见 [CodeBuddy / WorkBuddy 接入说明](docs/buddy.md)。这部分使用固定版本开源适配器的协议事实独立实现 C#，不执行其插件；真实账号和免费权益仍需登录后确认。
 
 ## 使用 Grok OAuth（CLI 通道）
 

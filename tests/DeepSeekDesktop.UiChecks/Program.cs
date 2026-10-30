@@ -100,6 +100,13 @@ internal static class Program
         var testPayload = System.Text.Json.JsonSerializer.SerializeToElement(requestFactory.Invoke(null, new object[] { grokTestSettings }));
         var convertedTest = DeepSeekDesktop.Gateway.GrokProtocol.Chat(testPayload, new DeepSeekDesktop.Gateway.GrokReplayCache());
         Check(convertedTest["model"]?.ToString() == "grok-4.7" && convertedTest["reasoning"]?["effort"]?.ToString() == "low", "The actual desktop test payload must not disable reasoning on Grok 4.7.");
+        foreach (string buddyProvider in new[] { Providers.CodeBuddy, Providers.WorkBuddy })
+        {
+            var buddyTestSettings = new Settings { Provider = buddyProvider, CodeBuddyModel = "hy4-preview", WorkBuddyModel = "hy4-preview" };
+            var buddyTestPayload = System.Text.Json.JsonSerializer.SerializeToElement(requestFactory.Invoke(null, new object[] { buddyTestSettings }));
+            var buddyTest = DeepSeekDesktop.Gateway.BuddyProtocol.Chat(buddyTestPayload, new[] { new DeepSeekDesktop.Gateway.BuddyModel("hy4-preview", "Hy4", ReasoningEfforts: new[] { "high" }) });
+            Check(!buddyTestPayload.TryGetProperty("reasoning_effort", out _) && buddyTest["model"]?.ToString() == "hy4-preview", "The desktop Buddy test must use model defaults rather than force unsupported reasoning=none.");
+        }
         typeof(MainWindow).GetField("settings", flags)!.SetValue(window, fixture);
         foreach (var method in new[] { "LoadSettings", "LoadAccounts", "ResetAccount" }) typeof(MainWindow).GetMethod(method, flags)!.Invoke(window, null);
         Check(((ComboBox)window.FindName("ProviderBox")).SelectedIndex == 1 && ((TextBlock)window.FindName("ModelHint")).Text.Contains("qingyan-default"), "Platform and model labels must agree.");
@@ -126,6 +133,26 @@ internal static class Program
             typeof(MainWindow).GetField("grokLoginCancellation", flags)!.SetValue(window, null);
             typeof(MainWindow).GetMethod("UpdateState", flags)!.Invoke(window, null);
             Check(((FrameworkElement)window.FindName("GrokCodePanel")).Visibility == Visibility.Collapsed && !((Button)window.FindName("SubmitGrokCodeButton")).IsEnabled, "Manual code entry must be hidden and disabled outside a login attempt.");
+        }
+        foreach (var region in new[] { (Provider: Providers.CodeBuddy, Index: 3), (Provider: Providers.WorkBuddy, Index: 4) })
+        {
+            fixture.Provider = region.Provider;
+            fixture.Accounts.Add(new Account { Provider = region.Provider, Name = region.Provider + " fixture", AccessToken = "fixture-buddy-access-only", RefreshToken = "fixture-buddy-refresh-only", BuddyUserId = "fixture-buddy-user" });
+            foreach (var method in new[] { "LoadSettings", "LoadAccounts", "ResetAccount" }) typeof(MainWindow).GetMethod(method, flags)!.Invoke(window, null);
+            Check(((ComboBox)window.FindName("ProviderBox")).SelectedIndex == region.Index && ((FrameworkElement)window.FindName("BuddyCredentials")).Visibility == Visibility.Visible && ((FrameworkElement)window.FindName("BuddyModelPanel")).Visibility == Visibility.Visible && ((FrameworkElement)window.FindName("GrokCredentials")).Visibility == Visibility.Collapsed && ((FrameworkElement)window.FindName("DeepSeekCredentials")).Visibility == Visibility.Collapsed, "Both Buddy regions must show browser authorization and dynamic model controls without password inputs.");
+            Check(((ComboBox)window.FindName("BuddyModelBox")).IsEditable && ((ComboBox)window.FindName("BuddyModelBox")).Text == "deepseek-v4.1-flash" && accounts.Items.Count == 1 && !accounts.Items[0].ToString()!.Contains("fixture-buddy"), "Buddy account filtering must hide authorization values and retain an editable default model.");
+            Check(((TextBlock)window.FindName("BuddyLoginHelp")).Text.Contains(region.Provider == Providers.CodeBuddy ? "手机号" : "Google"), "Each Buddy region must explain its actual login method.");
+        }
+        using (var buddyOperation = new CancellationTokenSource())
+        {
+            typeof(MainWindow).GetField("buddyOperationCancellation", flags)!.SetValue(window, buddyOperation);
+            typeof(MainWindow).GetMethod("UpdateState", flags)!.Invoke(window, null);
+            Check(!((Button)window.FindName("StartButton")).IsEnabled && !((ComboBox)window.FindName("ProviderBox")).IsEnabled && !((Button)window.FindName("SaveAccountButton")).IsEnabled && !((Button)window.FindName("RefreshBuddyModelsButton")).IsEnabled && ((Button)window.FindName("CancelBuddyLoginButton")).IsEnabled, "Buddy login and queries must block competing mutations while keeping cancellation available.");
+            Check(((FrameworkElement)window.FindName("GrokCodePanel")).Visibility == Visibility.Collapsed && ((Button)window.FindName("CancelBuddyOperationButton")).Visibility == Visibility.Visible, "Buddy operations must not expose unrelated Grok code entry and must offer cancellation in the model panel.");
+            typeof(MainWindow).GetMethod("CancelBuddyLogin_Click", flags)!.Invoke(window, new object[] { window, new RoutedEventArgs() });
+            Check(buddyOperation.IsCancellationRequested, "The Buddy cancel action must cancel the active operation.");
+            typeof(MainWindow).GetField("buddyOperationCancellation", flags)!.SetValue(window, null);
+            typeof(MainWindow).GetMethod("UpdateState", flags)!.Invoke(window, null);
         }
         int closeAttempts = 0;
         typeof(MainWindow).GetField("availableRelease", flags)!.SetValue(window, new DesktopRelease(new Version(0, 4, 1), UpdateFeed.ReleasesUrl));
