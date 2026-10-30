@@ -8,6 +8,7 @@
 - 产品交互参考：[lbjlaq/Antigravity-Manager](https://github.com/lbjlaq/Antigravity-Manager)。本项目未复制其源代码、图标或其他资源。
 - 清言协议参考：[Lequait/dsh-glm-web](https://github.com/Lequait/dsh-glm-web)，commit `a774779de6d06017ec606b82dde1e51f26e4e3fe`，MIT。参考 `lib/chatglm.js` 中的 HTTP 端点、签名、请求体和事件流事实，在本项目独立实现 C# 适配，未捆绑或执行其 JavaScript。保留其版权与许可证如下。
 - 清言本地 HTTP 服务使用 Microsoft ASP.NET Core/Kestrel，MIT；自包含包附带运行时许可证。
+- CodeBuddy / WorkBuddy 协议参考 [iJetLi/deepseek-harness-codearts](https://gitee.com/iJetLi/deepseek-harness-codearts)，commit `6fa74723d42ff605d1de349589c21a1ac4eb7ba2`，MIT，Copyright (c) 2026 Jet。根据其认证、模型目录、积分查询与 Chat Completions 协议独立实现 C#，不捆绑或执行该项目的 TypeScript / Node 插件。该项目的 MIT 许可证与下方 dsh-glm-web MIT License 条款相同，版权声明为 `Copyright (c) 2026 Jet`。
 - Grok OAuth/Responses 协议事实参考 [Cherry Studio v2.1.6](https://github.com/CherryHQ/cherry-studio/tree/v2.1.6) 的 Grok 供应商、PKCE 和请求适配。上游采用 AGPL-3.0；本项目未复制或嵌入其 TypeScript 源码，按公开协议事实独立实现 C#。同时参考 [xAI OIDC 元数据](https://auth.x.ai/.well-known/openid-configuration) 与 [官方集成文档](https://docs.x.ai/build/cli/headless-scripting)。未捆绑 Grok CLI 或其认证文件，不代表获得 xAI 官方背书。
 
 校验信息见 `engine-lock.json`。发布包中的 `.exe` 尚未进行代码签名。

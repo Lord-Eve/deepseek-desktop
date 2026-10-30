@@ -1,5 +1,15 @@
 # 验证记录
 
+## CodeBuddy / WorkBuddy 原生接入（未发布）
+
+2026-10-29（America/Los_Angeles），分支 `feat/native-buddy` 在本机 Windows 通过：54 项核心检查、13 项 Windows DPAPI / ACL / Job 检查、107 项 Buddy 认证 / 协议 / 本地 API / 模拟工具闭环检查、39 项 WPF 检查，以及 53 项既有 Grok 契约检查。WPF 项目同时完成 Release 编译，零警告、零错误。
+
+Buddy 检查覆盖国内／国际端点分流、浏览器授权和取消、令牌续期及轮换保存失败、模型目录合并、精确积分及失效资源包过滤、Chat / Responses 文本和函数工具闭环、SSE 分片与截断、首条 system 要求、本机鉴权和限额、停止取消与端口释放。上游使用注入的模拟 HTTP 响应，只有本地 API 使用回环端口；不读取真实账号、不执行外部工具、不消耗真实额度。
+
+WPF 检查不触发 Loaded 或加载真实配置；Windows 存储检查使用独立临时目录。真实网页登录、验证码、模型权限、实际积分扣减及完整客户端人工验收尚未完成。
+
+同分支的 review 修复验证通过 93 项核心检查、166 项 Buddy 检查及 39 项 WPF 检查。新增场景覆盖空结束标记、重复及冲突工具标识、目录缺失或不一致的默认思考档位、Responses 正文和多工具历史的同轮合并、独立排队／执行超时、单次登录轮询超时恢复、日期时区和 Unix 秒／毫秒资源包过滤，以及共享域名规则。Windows DPAPI 与既有 Grok 协议未作改动，复用上述 13 项原生与 53 项 Grok 验证结果。
+
 2026-10-20，基线 `b72864a` 已在 GitHub 的托管 Windows runner 上完成检查和自包含打包。
 
 [Windows CI 完整记录](https://github.com/Lord-Eve/deepseek-desktop/actions/runs/39366023725)

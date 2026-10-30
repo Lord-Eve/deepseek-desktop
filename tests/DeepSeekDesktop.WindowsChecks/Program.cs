@@ -35,6 +35,17 @@ try
     var grok = PrivateStorage.Load();
     Check(grok.Accounts[2].Id == s.Accounts[2].Id && grok.Accounts[2].AccessToken == s.Accounts[2].AccessToken && grok.Accounts[2].TokenExpiresAt == s.Accounts[2].TokenExpiresAt && grok.Accounts[1].RefreshToken == s.Accounts[1].RefreshToken, "Grok OAuth credentials must round-trip through DPAPI without changing Qingyan data.");
     Check(!Encoding.UTF8.GetString(File.ReadAllBytes(PrivateStorage.SettingsPath)).Contains("fixture-grok-access-only"), "Grok access tokens must not be plaintext on disk.");
+    s.Provider = Providers.WorkBuddy;
+    s.Accounts.Add(new Account { Provider = Providers.WorkBuddy, AccessToken = "fixture-buddy-access-only", RefreshToken = "fixture-buddy-refresh-only", TokenExpiresAt = DateTimeOffset.UtcNow.AddHours(1).ToUnixTimeSeconds(), BuddyUserId = "fixture-buddy-user", BuddyDomain = "www.workbuddy.ai", BuddyEnterpriseId = "", BuddyAccountType = "personal", BuddyRefreshExpiresAt = DateTimeOffset.UtcNow.AddDays(7).ToUnixTimeSeconds() });
+    s.WorkBuddyModel = "deepseek-v4.1-flash-sg";
+    PrivateStorage.Save(s);
+    var buddy = PrivateStorage.Load();
+    Check(buddy.Provider == Providers.WorkBuddy && buddy.WorkBuddyModel == s.WorkBuddyModel && buddy.Accounts[3].Id == s.Accounts[3].Id && buddy.Accounts[3].BuddyUserId == "fixture-buddy-user" && buddy.Accounts[3].BuddyDomain == "www.workbuddy.ai" && buddy.Accounts[3].BuddyRefreshExpiresAt == s.Accounts[3].BuddyRefreshExpiresAt && buddy.Accounts[2].AccessToken == s.Accounts[2].AccessToken, "Buddy authorization metadata and model must round-trip without changing the other providers.");
+    s.Accounts[3].RefreshToken = "fixture-buddy-rotated-refresh";
+    PrivateStorage.Save(s);
+    Check(PrivateStorage.Load().Accounts[3].RefreshToken == "fixture-buddy-rotated-refresh", "Rotated Buddy refresh tokens must survive encrypted reload.");
+    var buddyDisk = Encoding.UTF8.GetString(File.ReadAllBytes(PrivateStorage.SettingsPath));
+    Check(!buddyDisk.Contains("fixture-buddy-access-only") && !buddyDisk.Contains("fixture-buddy-rotated-refresh") && !buddyDisk.Contains("fixture-buddy-user"), "Buddy credentials and identity must remain encrypted on disk.");
     File.WriteAllBytes(PrivateStorage.SettingsPath, [0, 1, 2, 3]);
     bool failedClosed = false;
     try { _ = PrivateStorage.Load(); } catch (System.ComponentModel.Win32Exception) { failedClosed = true; }

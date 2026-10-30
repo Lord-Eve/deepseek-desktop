@@ -29,10 +29,16 @@
      <ScrollViewer VerticalScrollBarVisibility="Auto">
       <StackPanel Margin="0,0,8,0">
        <TextBlock Text="服务概览" FontSize="27" FontWeight="SemiBold" Margin="0,0,0,6"/>
-       <TextBlock Text="把 DeepSeek、智谱清言或 Grok 接到你熟悉的客户端。" Foreground="#7B879E" Margin="0,0,0,16"/>
+       <TextBlock Text="把 DeepSeek、清言、Grok 或 Buddy 模型接到你熟悉的客户端。" Foreground="#7B879E" Margin="0,0,0,16" TextWrapping="Wrap"/>
        <TextBlock Text="当前服务平台（停止服务后可切换）" Style="{StaticResource Label}"/>
-       <ComboBox x:Name="ProviderBox" SelectedIndex="0" SelectionChanged="Provider_SelectionChanged" Margin="0,0,0,18" Padding="10,8"><ComboBoxItem Content="DeepSeek"/><ComboBoxItem Content="智谱清言"/><ComboBoxItem Content="Grok OAuth（CLI 通道）"/></ComboBox>
+       <ComboBox x:Name="ProviderBox" SelectedIndex="0" SelectionChanged="Provider_SelectionChanged" Margin="0,0,0,18" Padding="10,8"><ComboBoxItem Content="DeepSeek"/><ComboBoxItem Content="智谱清言"/><ComboBoxItem Content="Grok OAuth（CLI 通道）"/><ComboBoxItem Content="CodeBuddy（国内版）"/><ComboBoxItem Content="WorkBuddy（国际版）"/></ComboBox>
        <StackPanel x:Name="GrokModelPanel" Visibility="Collapsed" Margin="0,0,0,18"><TextBlock Text="Grok 默认测试模型（预设目录，实际可用性取决于账号权限）" Style="{StaticResource Label}"/><ComboBox x:Name="GrokModelBox" SelectionChanged="GrokModel_SelectionChanged" Padding="10,8"/></StackPanel>
+       <StackPanel x:Name="BuddyModelPanel" Visibility="Collapsed" Margin="0,0,0,18">
+        <TextBlock Text="默认测试模型（可输入模型 ID，保存后用于测试）" Style="{StaticResource Label}"/>
+        <ComboBox x:Name="BuddyModelBox" IsEditable="True" MaxDropDownHeight="260" Padding="10,8"/>
+        <WrapPanel Margin="0,10,0,0"><Button x:Name="SaveBuddyModelButton" Content="保存测试模型" Click="SaveBuddyModel_Click"/><Button x:Name="RefreshBuddyModelsButton" Content="获取账号模型列表" Click="RefreshBuddyModels_Click"/><Button x:Name="CancelBuddyOperationButton" Content="取消查询" Click="CancelBuddyLogin_Click" Visibility="Collapsed"/></WrapPanel>
+        <TextBlock x:Name="BuddyModelsStatus" Text="登录后可获取当前地区的模型目录；此操作不发送对话。" Foreground="#7B879E" FontSize="11" TextWrapping="Wrap" Margin="0,6,0,0"/>
+       </StackPanel>
        <Border Style="{StaticResource Card}">
         <StackPanel>
          <DockPanel><Border x:Name="StatusPill" Background="#EDF0F6" CornerRadius="8" Padding="12,5" DockPanel.Dock="Right"><TextBlock x:Name="ServiceStatus" Text="已停止"/></Border><TextBlock Text="本地 API 服务" FontSize="18" FontWeight="SemiBold" VerticalAlignment="Center"/></DockPanel>
@@ -89,10 +95,16 @@
          <Button x:Name="SubmitGrokCodeButton" Content="完成登录" Click="SubmitGrokCode_Click" IsEnabled="False" HorizontalAlignment="Left"/>
         </StackPanel>
        </StackPanel>
+       <StackPanel x:Name="BuddyCredentials" Visibility="Collapsed" Margin="0,14,0,0">
+        <TextBlock x:Name="BuddyLoginStatus" Text="尚未完成浏览器授权。" Foreground="#64748B" TextWrapping="Wrap"/>
+        <TextBlock x:Name="BuddyLoginHelp" Text="在官方网页完成登录，授权后可关闭浏览器。" Foreground="#7B879E" TextWrapping="Wrap" Margin="0,8,0,12"/>
+        <WrapPanel><Button x:Name="BuddyLoginButton" Content="登录 / 重新登录" Click="BuddyLogin_Click"/><Button x:Name="CancelBuddyLoginButton" Content="取消登录 / 查询" Click="CancelBuddyLogin_Click" IsEnabled="False"/><Button x:Name="QueryBuddyBalanceButton" Content="查询积分余额" Click="QueryBuddyBalance_Click"/></WrapPanel>
+        <TextBlock x:Name="BuddyBalanceStatus" Text="积分余额尚未查询；查询不会领取奖励或发送对话。" Foreground="#7B879E" FontSize="11" TextWrapping="Wrap" Margin="0,8,0,0"/>
+       </StackPanel>
        <CheckBox x:Name="AccountEnabled" Content="启用这个账号" IsChecked="True" Margin="0,18,0,18"/>
        <StackPanel Orientation="Horizontal"><Button x:Name="SaveAccountButton" Content="保存账号" Click="SaveAccount_Click" Background="#4D6BFE" Foreground="White"/><Button x:Name="CredentialHelpButton" Content="如何获取 device_id" Click="DeviceHelp_Click"/></StackPanel>
       </StackPanel></Border>
-      <TextBlock Text="这里只显示当前平台的账号，切换平台会保留另一平台的配置。网页接口可能变化，账号可能受到上游限制；不自动处理浏览器登录或验证码。" Foreground="#7B879E" FontSize="12" TextWrapping="Wrap"/>
+      <TextBlock Text="这里只显示当前平台的账号，切换平台会保留其他平台的配置。浏览器授权由你本人完成；验证码和模型权限由上游平台决定。" Foreground="#7B879E" FontSize="12" TextWrapping="Wrap"/>
      </StackPanel></ScrollViewer>
     </TabItem>
     <TabItem Header="连接设置">
