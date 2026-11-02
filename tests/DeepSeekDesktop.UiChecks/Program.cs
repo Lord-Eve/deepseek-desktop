@@ -167,6 +167,67 @@ internal static class Program
         window.Close();
         window.Close();
         Check(closeAttempts == 2 && !window.IsVisible, "Repeated closes must keep the window available in the tray.");
+        // Service state writes go to a temporary data directory, never the user's settings.
+        string serviceData = Path.Combine(Path.GetTempPath(), "deepseek-desktop-ui-checks-" + Guid.NewGuid().ToString("N"));
+        Environment.SetEnvironmentVariable("DEEPSEEK_DESKTOP_DATA_DIR", serviceData);
+        try
+        {
+            var storage = typeof(MainWindow).Assembly.GetType("DeepSeekDesktop.PrivateStorage")!;
+            bool? SavedDesired() => ((Settings)storage.GetMethod("Load")!.Invoke(null, null)!).ServiceDesired;
+            string ScopeFor(string? directory)
+            {
+                Environment.SetEnvironmentVariable("DEEPSEEK_DESKTOP_DATA_DIR", directory);
+                try { return (string)typeof(App).GetMethod("InstanceScope", BindingFlags.Static | BindingFlags.NonPublic)!.Invoke(null, null)!; }
+                finally { Environment.SetEnvironmentVariable("DEEPSEEK_DESKTOP_DATA_DIR", serviceData); }
+            }
+            Check(ScopeFor(serviceData) == ScopeFor(serviceData + Path.DirectorySeparatorChar) && ScopeFor(serviceData) == ScopeFor(serviceData.ToUpperInvariant()), "Spellings of one data directory must share a single instance.");
+            string defaultRoot = (string)storage.GetProperty("DefaultRoot")!.GetValue(null)!;
+            Check(ScopeFor(defaultRoot) == ScopeFor(null) && ScopeFor(defaultRoot + Path.DirectorySeparatorChar) == ScopeFor(null) && ScopeFor(serviceData) != ScopeFor(null), "The default data directory must have one identity whether implicit or explicit; other directories stay separate.");
+            var boundAccount = new Account { Name = "bound fixture", Enabled = false };
+            var boundSettings = new Settings { Accounts = [boundAccount] };
+            typeof(MainWindow).GetField("settings", flags)!.SetValue(window, boundSettings);
+            typeof(MainWindow).GetMethod("SaveServiceDesired", flags)!.Invoke(window, new object[] { true });
+            Check(SavedDesired() == true && ReferenceEquals(typeof(MainWindow).GetField("settings", flags)!.GetValue(window), boundSettings) && boundSettings.ServiceDesired == true && boundSettings.Accounts[0] == boundAccount, "Saving the service state must keep the Account objects bound to the account list.");
+            foreach (string provider in new[] { Providers.DeepSeek, Providers.Qingyan, Providers.Grok, Providers.CodeBuddy, Providers.WorkBuddy })
+            {
+                // No enabled account: validation fails before any network or process work. A dialog here would hang the check.
+                typeof(MainWindow).GetField("settings", flags)!.SetValue(window, new Settings { Provider = provider, ServiceDesired = true });
+                var failed = (Task)typeof(MainWindow).GetMethod("StartServiceAsync", flags)!.Invoke(window, new object[] { false })!;
+                Check(failed.IsCompletedSuccessfully, "A failed automatic start must finish without waiting on a dialog.");
+                var current = (Settings)typeof(MainWindow).GetField("settings", flags)!.GetValue(window)!;
+                Check(current.ServiceDesired == true && ((TextBlock)window.FindName("ServiceStatus")).Text == "自动启动失败" && ((TextBlock)window.FindName("ServiceDetail")).Text.Contains(current.ProviderName), $"{provider}: a failed automatic start must show the error and keep the remembered state.");
+                Check(((Button)window.FindName("StartButton")).IsEnabled, $"{provider}: a failed automatic start must leave manual start available.");
+            }
+            // As in the running app, awaits resume on the UI thread.
+            SynchronizationContext.SetSynchronizationContext(new System.Windows.Threading.DispatcherSynchronizationContext());
+            void Pump(Task task)
+            {
+                var frame = new System.Windows.Threading.DispatcherFrame();
+                task.ContinueWith(_ => frame.Continue = false, TaskScheduler.Default);
+                var limit = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(30) };
+                limit.Tick += (_, _) => frame.Continue = false; limit.Start();
+                System.Windows.Threading.Dispatcher.PushFrame(frame);
+                limit.Stop();
+                Check(task.IsCompletedSuccessfully, $"The service operation must finish: {task.Status} {task.Exception?.GetBaseException()}");
+            }
+            Task Run(string method, params object[] parameters) => (Task)typeof(MainWindow).GetMethod(method, flags)!.Invoke(window, parameters)!;
+            // An unexpired fixture Grok token starts the local gateway without contacting upstream.
+            int freePort; { var probe = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, 0); probe.Start(); freePort = ((System.Net.IPEndPoint)probe.LocalEndpoint).Port; probe.Stop(); }
+            typeof(MainWindow).GetField("settings", flags)!.SetValue(window, new Settings { Provider = Providers.Grok, Port = freePort, Accounts = [new Account { Provider = Providers.Grok, Name = "Grok fixture", AccessToken = "fixture-access-only", RefreshToken = "fixture-refresh-only", TokenExpiresAt = DateTimeOffset.UtcNow.AddDays(1).ToUnixTimeSeconds() }] });
+            Pump(Run("StartServiceAsync", true));
+            Check(SavedDesired() == true && !((Button)window.FindName("StartButton")).IsEnabled, "A successful manual start must be remembered even though settings are locked while running.");
+            Pump(Run("StopServiceAsync"));
+            Check(SavedDesired() == false && ((TextBlock)window.FindName("ServiceStatus")).Text == "已停止", "Stopping the service must be remembered.");
+            Pump(Run("StartServiceAsync", false));
+            Check(SavedDesired() == false && !((Button)window.FindName("StartButton")).IsEnabled, "An automatic or --start-service start must not change the remembered state.");
+            Pump(Run("StopServiceAsync"));
+            Pump(Run("StartServiceAsync", true));
+            typeof(MainWindow).GetField("initialized", flags)!.SetValue(window, true);
+            Pump(Run("QuitAsync"));
+            Check(SavedDesired() == true, "Quitting the program must not count as stopping the service.");
+            using (var released = new System.Net.Sockets.TcpClient()) { bool connected = false; try { released.Connect(System.Net.IPAddress.Loopback, freePort); connected = true; } catch (System.Net.Sockets.SocketException) { } Check(!connected, "Quitting must still stop the service."); }
+        }
+        finally { Environment.SetEnvironmentVariable("DEEPSEEK_DESKTOP_DATA_DIR", null); Directory.Delete(serviceData, true); }
         Console.WriteLine($"PASS: {checks} WPF layout and inherited color checks (no real settings or login)");
         app.Shutdown();
     }

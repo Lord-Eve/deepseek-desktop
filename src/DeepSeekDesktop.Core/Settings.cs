@@ -68,6 +68,8 @@ public sealed class Settings
     public bool SearchEnabled { get; set; }
     public string ProxyUrl { get; set; } = "";
     public List<Account> Accounts { get; set; } = [];
+    // True after the user starts the service, false after the user stops it; quitting and shutdown leave it as is.
+    public bool? ServiceDesired { get; set; }
     public string BaseUrl => $"http://127.0.0.1:{Port}/v1";
     public static string NewKey() => "sk-local-" + Convert.ToHexString(RandomNumberGenerator.GetBytes(24)).ToLowerInvariant();
 

@@ -44,6 +44,15 @@ if (args.Length == 2 && args[0] == "--fixture")
     s.ApiKey = "sk-local-fixture-only-01234567890123456789";
     File.WriteAllText(args[1], EngineConfig.Render(s, "fixture-admin-secret"), new UTF8Encoding(false));
 }
+Check(JsonSerializer.Deserialize<Settings>("""{"Port":22217}""")!.ServiceDesired == null, "Settings saved by older versions must load with no recorded service state.");
+Check(JsonSerializer.Deserialize<Settings>(JsonSerializer.Serialize(new Settings { ServiceDesired = true }))!.ServiceDesired == true, "The remembered service state must survive saving.");
+Check(ServiceLaunch.ShouldStart(true, false, false), "A remembered running service must start on launch.");
+Check(!ServiceLaunch.ShouldStart(false, false, false) && !ServiceLaunch.ShouldStart(null, false, false), "A stopped or never-started service must stay stopped.");
+Check(ServiceLaunch.ShouldStart(false, true, false) && ServiceLaunch.ShouldStart(null, true, false), "--start-service must override the saved state.");
+Check(ServiceLaunch.ShouldStart(false, false, true), "An update must restore a service that was running.");
+Check(ServiceLaunch.AfterUpdateResume(null, true) == true && ServiceLaunch.AfterUpdateResume(null, false) == null, "Updating from a version without the field must record only a running service.");
+Check(ServiceLaunch.AfterUpdateResume(false, true) == false && ServiceLaunch.AfterUpdateResume(true, false) == true, "An update must not overwrite a recorded choice.");
+Check(ServiceLaunch.Has(["--tray", "--START-SERVICE"], ServiceLaunch.StartServiceArgument) && !ServiceLaunch.Has(["--tray"], ServiceLaunch.StartServiceArgument), "Launch arguments must match exactly, ignoring case.");
 using var unavailable = JsonDocument.Parse("""{"idle":0,"busy":0,"error":0,"invalid":1}""");
 Check(!PoolStatus.Parse(unavailable.RootElement).HasUsableAccount, "Listening with an invalid account must not imply chat readiness.");
 using var busyPool = JsonDocument.Parse("""{"idle":0,"busy":1,"error":0,"invalid":0}""");
