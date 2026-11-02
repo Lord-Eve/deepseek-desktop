@@ -174,6 +174,20 @@ internal static class Program
         {
             var storage = typeof(MainWindow).Assembly.GetType("DeepSeekDesktop.PrivateStorage")!;
             bool? SavedDesired() => ((Settings)storage.GetMethod("Load")!.Invoke(null, null)!).ServiceDesired;
+            string ScopeFor(string? directory)
+            {
+                Environment.SetEnvironmentVariable("DEEPSEEK_DESKTOP_DATA_DIR", directory);
+                try { return (string)typeof(App).GetMethod("InstanceScope", BindingFlags.Static | BindingFlags.NonPublic)!.Invoke(null, null)!; }
+                finally { Environment.SetEnvironmentVariable("DEEPSEEK_DESKTOP_DATA_DIR", serviceData); }
+            }
+            Check(ScopeFor(serviceData) == ScopeFor(serviceData + Path.DirectorySeparatorChar) && ScopeFor(serviceData) == ScopeFor(serviceData.ToUpperInvariant()), "Spellings of one data directory must share a single instance.");
+            string defaultRoot = (string)storage.GetProperty("DefaultRoot")!.GetValue(null)!;
+            Check(ScopeFor(defaultRoot) == ScopeFor(null) && ScopeFor(defaultRoot + Path.DirectorySeparatorChar) == ScopeFor(null) && ScopeFor(serviceData) != ScopeFor(null), "The default data directory must have one identity whether implicit or explicit; other directories stay separate.");
+            var boundAccount = new Account { Name = "bound fixture", Enabled = false };
+            var boundSettings = new Settings { Accounts = [boundAccount] };
+            typeof(MainWindow).GetField("settings", flags)!.SetValue(window, boundSettings);
+            typeof(MainWindow).GetMethod("SaveServiceDesired", flags)!.Invoke(window, new object[] { true });
+            Check(SavedDesired() == true && ReferenceEquals(typeof(MainWindow).GetField("settings", flags)!.GetValue(window), boundSettings) && boundSettings.ServiceDesired == true && boundSettings.Accounts[0] == boundAccount, "Saving the service state must keep the Account objects bound to the account list.");
             foreach (string provider in new[] { Providers.DeepSeek, Providers.Qingyan, Providers.Grok, Providers.CodeBuddy, Providers.WorkBuddy })
             {
                 // No enabled account: validation fails before any network or process work. A dialog here would hang the check.

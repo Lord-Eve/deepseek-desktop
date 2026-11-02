@@ -12,7 +12,8 @@ namespace DeepSeekDesktop;
 
 internal static class PrivateStorage
 {
-    public static string Root => Path.GetFullPath(Environment.GetEnvironmentVariable("DEEPSEEK_DESKTOP_DATA_DIR") ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "DeepSeekDesktop"));
+    public static string DefaultRoot => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "DeepSeekDesktop");
+    public static string Root => Path.GetFullPath(Environment.GetEnvironmentVariable("DEEPSEEK_DESKTOP_DATA_DIR") ?? DefaultRoot);
     public static string SettingsPath => Path.Combine(Root, "settings.dpapi");
 
     public static void SecureDirectory(string path)

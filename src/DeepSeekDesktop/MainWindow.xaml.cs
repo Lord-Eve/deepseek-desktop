@@ -260,7 +260,8 @@ public partial class MainWindow : Window
     {
         if (settings.ServiceDesired == desired) return;
         // Bypasses Save(): this is the one setting that changes while the service runs.
-        try { var candidate = Clone(); candidate.ServiceDesired = desired; PrivateStorage.Save(candidate); settings = candidate; }
+        // Updates in place because the account list is bound to the current Account objects.
+        try { var candidate = Clone(); candidate.ServiceDesired = desired; PrivateStorage.Save(candidate); settings.ServiceDesired = desired; }
         catch (Exception ex) { logs.Enqueue("未能保存服务启动状态：" + ex.GetType().Name); }
     }
     private async Task StopServiceAsync()

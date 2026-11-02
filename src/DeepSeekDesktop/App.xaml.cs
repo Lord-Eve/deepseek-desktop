@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using System.Reflection;
 using System.Security.Cryptography;
 using System.Text;
@@ -37,6 +38,11 @@ public partial class App : Application
     internal void ListenForStartRequests(Action requested) =>
         startRequestWait = startRequest == null ? null : ThreadPool.RegisterWaitForSingleObject(startRequest, (_, _) => requested(), null, Timeout.Infinite, false);
     // An isolated data directory is a separate instance, so testing it cannot signal the user's running program.
-    private static string InstanceScope() => Environment.UserName + (Environment.GetEnvironmentVariable("DEEPSEEK_DESKTOP_DATA_DIR") == null ? "" : "-" + Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(PrivateStorage.Root.ToUpperInvariant())))[..16]);
+    private static string InstanceScope()
+    {
+        static string Normalize(string path) => Path.TrimEndingDirectorySeparator(Path.GetFullPath(path)).ToUpperInvariant();
+        string root = Normalize(PrivateStorage.Root);
+        return Environment.UserName + (root == Normalize(PrivateStorage.DefaultRoot) ? "" : "-" + Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(root)))[..16]);
+    }
     protected override void OnExit(ExitEventArgs e) { startRequestWait?.Unregister(null); startRequest?.Dispose(); instance?.Dispose(); base.OnExit(e); }
 }
