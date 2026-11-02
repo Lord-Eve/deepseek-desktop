@@ -12,6 +12,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Threading;
 using DeepSeekDesktop.Core;
@@ -30,6 +31,9 @@ public partial class MainWindow : Window
     private System.Drawing.Icon? trayIcon;
     private bool busy, polling, quitting, initialized;
     private bool stopInProgress;
+    private bool initializeStarted;
+    private int stopRequests;
+    private string? startFailure;
     private int editing = -1;
     private CancellationTokenSource? testCancellation;
     private PoolStatus? poolStatus;
@@ -68,8 +72,16 @@ public partial class MainWindow : Window
         timer.Tick += async (_, _) => await RefreshAsync();
     }
 
+    internal void StartInTray()
+    {
+        new WindowInteropHelper(this).EnsureHandle();
+        Initialize();
+    }
+
     private void Initialize()
     {
+        if (initializeStarted) return;
+        initializeStarted = true;
         try
         {
             settings = PrivateStorage.Load();
@@ -82,9 +94,12 @@ public partial class MainWindow : Window
             }
             initialized = true;
             LoadSettings(); LoadAccounts(); ResetAccount(); SetupTray(); UpdateState(); timer.Start();
-            bool resume = UpdateService.ConfirmRestart(Environment.GetCommandLineArgs()[1..]);
+            var args = Environment.GetCommandLineArgs()[1..];
+            bool resume = UpdateService.ConfirmRestart(args);
             try { UpdateService.CleanCompleted(); } catch (IOException) { } catch (UnauthorizedAccessException) { }
-            if (resume) Start_Click(this, new RoutedEventArgs());
+            if (ServiceLaunch.AfterUpdateResume(settings.ServiceDesired, resume) is bool desired) SaveServiceDesired(desired);
+            if (ServiceLaunch.ShouldStart(settings.ServiceDesired, ServiceLaunch.Has(args, ServiceLaunch.StartServiceArgument), resume)) _ = StartServiceAsync(false);
+            (Application.Current as App)?.ListenForStartRequests(() => Dispatcher.BeginInvoke(StartRequested));
             if (!startupUpdateChecked) { startupUpdateChecked = true; _ = CheckForUpdatesAsync(); }
         }
         catch (Exception ex)
@@ -199,27 +214,59 @@ public partial class MainWindow : Window
         DownloadUpdateButton.IsEnabled = availableRelease != null && !updating && !checkingUpdates && !signingIn && !busy && !stopInProgress;
         CheckUpdatesButton.IsEnabled = !checkingUpdates && !updating;
         CancelUpdateButton.Visibility = updating ? Visibility.Visible : Visibility.Collapsed;
-        ServiceStatus.Text = stopInProgress ? "停止中" : busy ? "正在启动" : ready ? poolStatus?.Title ?? "账号状态待确认" : running ? "初始化中" : "已停止";
+        ServiceStatus.Text = stopInProgress ? "停止中" : busy ? "正在启动" : ready ? poolStatus?.Title ?? "账号状态待确认" : running ? "初始化中" : startFailure != null ? "自动启动失败" : "已停止";
         StatusPill.Background = new SolidColorBrush(ready
             ? poolStatus is { HasUsableAccount: true, HasFailures: false } ? Color.FromRgb(225, 246, 236) : Color.FromRgb(255, 237, 213)
             : Color.FromRgb(237, 240, 246));
-        ServiceDetail.Text = ready ? poolStatus?.Detail ?? "本地端口已启动，账号状态尚未确认；请等待状态读取或查看日志。" : busy ? "正在连接上游并初始化账号，最长等待 3 分钟；可随时停止。" : "服务已停止，账号和连接设置可修改。";
+        ServiceDetail.Text = ready ? poolStatus?.Detail ?? "本地端口已启动，账号状态尚未确认；请等待状态读取或查看日志。" : busy ? "正在连接上游并初始化账号，最长等待 3 分钟；可随时停止。" : startFailure != null ? startFailure + " 修正后可点击“启动服务”重试。" : "服务已停止，账号和连接设置可修改。";
         if (tray != null) tray.Text = "DeepSeek Desktop · " + ServiceStatus.Text;
     }
 
-    private async void Start_Click(object sender, RoutedEventArgs e)
+    private async void Start_Click(object sender, RoutedEventArgs e) => await StartServiceAsync(true);
+    private async Task StartServiceAsync(bool manual)
     {
-        poolStatus = null;
+        poolStatus = null; startFailure = null;
+        int stops = stopRequests;
         busy = true; UpdateState(); TotalCount.Text = SuccessCount.Text = FailedCount.Text = "0";
-        try { await engine.StartAsync(settings); Tell("本地端口已启动，正在确认账号状态。"); }
-        catch (Exception ex) { if (!quitting && !stopInProgress) Error(ex); }
+        try
+        {
+            await engine.StartAsync(settings); Tell("本地端口已启动，正在确认账号状态。");
+            if (manual && stops == stopRequests && !quitting) SaveServiceDesired(true);
+        }
+        catch (Exception ex)
+        {
+            if (!quitting && !stopInProgress && stops == stopRequests)
+            {
+                if (manual) Error(ex);
+                else
+                {
+                    // Runs once per launch without a dialog; the saved state stays for the next launch.
+                    startFailure = LogRedactor.Redact(ex.Message, settings, "");
+                    Tell("服务未能自动启动：" + startFailure); logs.Enqueue("服务未能自动启动：" + startFailure);
+                }
+            }
+        }
         finally { busy = false; UpdateState(); }
         await RefreshAsync();
+    }
+    private void StartRequested()
+    {
+        if (quitting) return;
+        if (engine.IsRunning || busy) logs.Enqueue($"收到 {ServiceLaunch.StartServiceArgument}：服务已在运行或正在启动。");
+        else if (stopInProgress || updating || grokLoginCancellation != null || buddyOperationCancellation != null) logs.Enqueue($"收到 {ServiceLaunch.StartServiceArgument}：程序正在停止、登录或更新，已忽略。");
+        else _ = StartServiceAsync(false);
+    }
+    private void SaveServiceDesired(bool desired)
+    {
+        if (settings.ServiceDesired == desired) return;
+        // Bypasses Save(): this is the one setting that changes while the service runs.
+        try { var candidate = Clone(); candidate.ServiceDesired = desired; PrivateStorage.Save(candidate); settings = candidate; }
+        catch (Exception ex) { logs.Enqueue("未能保存服务启动状态：" + ex.GetType().Name); }
     }
     private async Task StopServiceAsync()
     {
         if (stopInProgress) return;
-        stopInProgress = true; testCancellation?.Cancel(); UpdateState();
+        stopInProgress = true; stopRequests++; startFailure = null; SaveServiceDesired(false); testCancellation?.Cancel(); UpdateState();
         try { await engine.StopAsync(); Tell("服务已停止。"); }
         catch (Exception ex) { if (!quitting) Error(ex); }
         finally { poolStatus = null; stopInProgress = false; UpdateState(); }
