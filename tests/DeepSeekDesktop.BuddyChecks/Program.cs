@@ -56,6 +56,32 @@ Bad(() => BuddyProtocol.Chat(Element(Request().With("messages", new JsonArray(ne
 Bad(() => BuddyProtocol.Responses(Element(new JsonObject { ["model"] = catalog[0].Id, ["input"] = "你好", ["previous_response_id"] = "resp_old" }), catalog), "No-storage Responses must require full input history.");
 var ordinaryResponse = BuddyProtocol.Responses(Element(new JsonObject { ["model"] = catalog[0].Id, ["input"] = "你好" }), catalog);
 Check(!ordinaryResponse.ContainsKey("tool_choice"), "Omitted Responses tool_choice must remain absent in the upstream Chat body.");
+JsonObject NoArgumentTool() => new() { ["type"] = "function", ["function"] = new JsonObject { ["name"] = "get_time", ["description"] = "读取当前时间" } };
+var omittedParameters = BuddyProtocol.Chat(Element(Request().With("tools", new JsonArray(NoArgumentTool()))), catalog);
+Check(omittedParameters["tools"]![0]!["function"]!["parameters"]?["type"]?.ToString() == "object" && omittedParameters["tools"]![0]!["function"]!["parameters"]!["properties"] is JsonObject { Count: 0 }, "Argument-free tools that omit parameters must receive an empty object schema.");
+var nullParameters = NoArgumentTool(); nullParameters["function"]!["parameters"] = null;
+Check(BuddyProtocol.Chat(Element(Request().With("tools", new JsonArray(nullParameters))), catalog)["tools"]![0]!["function"]!["parameters"]?["type"]?.ToString() == "object", "An explicit null parameters schema must be treated like an omitted one.");
+var stringParameters = NoArgumentTool(); stringParameters["function"]!["parameters"] = "object";
+Bad(() => BuddyProtocol.Chat(Element(Request().With("tools", new JsonArray(stringParameters))), catalog), "An explicit non-object parameters schema must still fail.");
+var responsesTool = BuddyProtocol.Responses(Element(new JsonObject { ["model"] = catalog[0].Id, ["input"] = "现在几点", ["tools"] = new JsonArray(new JsonObject { ["type"] = "function", ["name"] = "get_time" }) }), catalog);
+Check(responsesTool["tools"]![0]!["function"]!["parameters"]?["type"]?.ToString() == "object", "Responses argument-free tools must also receive an empty object schema.");
+JsonObject ReplayedHistory(JsonArray summary) => new()
+{
+    ["model"] = catalog[0].Id,
+    ["input"] = new JsonArray(
+        new JsonObject { ["role"] = "user", ["content"] = "你好" },
+        new JsonObject { ["type"] = "reasoning", ["id"] = "rs_grok", ["encrypted_content"] = "fixture-foreign-encrypted-reasoning", ["summary"] = summary },
+        new JsonObject { ["type"] = "message", ["role"] = "assistant", ["content"] = new JsonArray(new JsonObject { ["type"] = "output_text", ["text"] = "你好！" }) },
+        new JsonObject { ["role"] = "user", ["content"] = "再说一遍" })
+};
+var replayed = BuddyProtocol.Responses(Element(ReplayedHistory(new JsonArray(new JsonObject { ["type"] = "summary_text", ["text"] = "先打招呼" }))), catalog);
+var replayedAssistant = replayed["messages"]!.AsArray().Single(m => m?["role"]?.ToString() == "assistant")!;
+Check(replayedAssistant["reasoning_content"]?.ToString() == "先打招呼" && replayedAssistant["content"]?.ToString() == "你好！" && !replayed.ToJsonString().Contains("fixture-foreign-encrypted-reasoning"), "Replayed foreign encrypted reasoning must be dropped while its readable summary is kept.");
+var opaqueOnly = BuddyProtocol.Responses(Element(ReplayedHistory(new JsonArray())), catalog);
+Check(opaqueOnly["messages"]!.AsArray().Single(m => m?["role"]?.ToString() == "assistant")!["reasoning_content"]?.ToString() == "" && !opaqueOnly.ToJsonString().Contains("fixture-foreign-encrypted-reasoning"), "Encrypted reasoning without a summary must be skipped instead of failing the whole conversation.");
+var encryptedInclude = new JsonObject { ["model"] = catalog[0].Id, ["input"] = "你好", ["include"] = new JsonArray("reasoning.encrypted_content") };
+Check(!BuddyProtocol.Responses(Element(encryptedInclude), catalog).ContainsKey("include"), "Requesting encrypted reasoning must be accepted without forwarding include upstream.");
+Bad(() => BuddyProtocol.Responses(Element(new JsonObject { ["model"] = catalog[0].Id, ["input"] = "你好", ["include"] = new JsonArray("message.output_text.logprobs") }), catalog), "Other unsupported include extras must still fail explicitly.");
 
 foreach (string provider in new[] { Providers.CodeBuddy, Providers.WorkBuddy })
 {

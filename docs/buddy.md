@@ -22,7 +22,7 @@
 
 - `GET /v1/models`：返回当前区域的模型目录。
 - `POST /v1/chat/completions`：文本流式与非流式、思考内容、函数工具声明及结果回传。
-- `POST /v1/responses`：文本、思考摘要与函数工具兼容转换；客户端需回传完整 `input`，使用 `store: false`，不支持 `previous_response_id` 或其他供应商的加密思考。
+- `POST /v1/responses`：文本、思考摘要与函数工具兼容转换；客户端需回传完整 `input`，使用 `store: false`，不支持 `previous_response_id`。历史中其他供应商的加密思考无法解密，会丢弃密文、只保留可读摘要；`include` 可携带 `reasoning.encrypted_content`，但不会返回加密思考。
 - MCP / Exa 等工具仍由原客户端执行；本程序只转发函数工具调用，不执行工具或读取工具凭据。
 
 思考内容使用 `reasoning_content`，工具结果通过匹配的 `tool_call_id` 回传；客户端应保留完整对话历史。上游响应中断、工具调用不完整时返回错误，不把截断内容当成成功完成的可执行调用。模型支持的思考档位和输出上限取决于服务端配置。

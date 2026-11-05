@@ -109,6 +109,8 @@ public static class BuddyProtocol
                 if (tool is not JsonObject definition || definition["type"]?.ToString() != "function" || definition["function"] is not JsonObject function) throw new ArgumentException("仅支持 function 工具，由客户端执行。");
                 string name = function["name"]?.GetValue<string>() ?? "";
                 if (!Name(name) || !names.Add(name)) throw new ArgumentException("工具名无效或重复。");
+                // Some clients omit parameters for argument-free tools; an explicit schema must still be an object.
+                if (function["parameters"] == null) function["parameters"] = new JsonObject { ["type"] = "object", ["properties"] = new JsonObject() };
                 if (function["parameters"] is not JsonObject schema || schema["type"]?.ToString() != "object") throw new ArgumentException("工具 parameters 必须声明 object 类型。");
             }
         }
@@ -183,7 +185,8 @@ public static class BuddyProtocol
         var source = JsonNode.Parse(input.GetRawText())!.AsObject(); Fields(source, ResponseFields);
         if (source["previous_response_id"] != null) throw new ArgumentException("Buddy 使用无存储模式，请回传完整 input，不使用 previous_response_id。");
         if (source["store"] != null && source["store"]!.GetValue<bool>()) throw new ArgumentException("Buddy 不保存 Responses 会话，请使用 store: false。");
-        if (source["include"] != null && (source["include"] is not JsonArray include || include.Count > 0)) throw new ArgumentException("Buddy 不提供加密思考等额外 include 内容。");
+        // Encrypted reasoning is never produced here, so asking for it is harmless; other extras still fail.
+        if (source["include"] != null && (source["include"] is not JsonArray include || include.Any(item => item?.ToString() != "reasoning.encrypted_content"))) throw new ArgumentException("Buddy 不提供加密思考等额外 include 内容。");
         if (source["truncation"] != null && source["truncation"]?.ToString() != "disabled") throw new ArgumentException("Buddy 暂不支持自动截断历史。");
         if (source["text"] != null && (source["text"] is not JsonObject text || text.Count != 1 || text["format"] is not JsonObject format || format.Count != 1 || format["type"]?.ToString() != "text")) throw new ArgumentException("Responses 暂仅支持普通文本输出。");
         var request = new JsonObject { ["model"] = source["model"]?.DeepClone(), ["messages"] = new JsonArray() };
@@ -213,7 +216,8 @@ public static class BuddyProtocol
             string? type = turn["type"]?.ToString();
             if (type == "reasoning")
             {
-                if (turn["encrypted_content"] != null) throw new ArgumentException("Buddy 不支持其他供应商的加密思考上下文。");
+                // Replayed history may carry another provider's opaque reasoning; it cannot be
+                // decrypted here, so drop it and keep only the readable summary.
                 string part = Text(turn["summary"], "summary_text");
                 if (assistantRound == null) reasoning += part;
                 else assistantRound["reasoning_content"] = (assistantRound["reasoning_content"]?.GetValue<string>() ?? "") + part;
