@@ -1,6 +1,6 @@
 # DeepSeek Desktop
 
-[私有仓库](https://github.com/Lord-Eve/deepseek-desktop) · [预发布下载](https://github.com/Lord-Eve/deepseek-desktop/releases) · [Windows 构建记录](https://github.com/Lord-Eve/deepseek-desktop/actions/workflows/windows.yml)
+[GitHub 仓库](https://github.com/Lord-Eve/deepseek-desktop) · [预发布下载](https://github.com/Lord-Eve/deepseek-desktop/releases) · [Windows 构建记录](https://github.com/Lord-Eve/deepseek-desktop/actions/workflows/windows.yml)
 
 面向 Windows 11 x64 的非官方桌面客户端，支持 DeepSeek、智谱清言、Grok OAuth（CLI 通道）、CodeBuddy（国内版）与 WorkBuddy（国际版）。使用原生窗口管理账号与服务，在 `127.0.0.1` 提供 OpenAI 兼容 API，可供 Cherry Studio、AstrBot、Eve pet、tibo watch 等客户端配置接入。取得初始登录授权后，无需一直打开浏览器，也无需安装 Node、Python 或 .NET 运行时。
 
