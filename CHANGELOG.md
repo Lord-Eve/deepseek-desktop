@@ -1,6 +1,6 @@
 # 更新记录
 
-## 未发布
+## 0.6.1 — 2026-11-05
 
 - Buddy 兼容放宽：无参数工具省略 `parameters` 时按空 object 处理，显式给出非 object 仍报错；Responses 历史中其他供应商的加密思考不再导致整段对话 400，丢弃密文后保留可读摘要，`include` 可携带 `reasoning.encrypted_content`（不会返回密文）。
 

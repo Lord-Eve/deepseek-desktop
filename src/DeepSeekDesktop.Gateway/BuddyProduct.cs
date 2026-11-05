@@ -8,7 +8,7 @@ namespace DeepSeekDesktop.Gateway;
 // 6fa74723d42ff605d1de349589c21a1ac4eb7ba2 (MIT). No upstream runtime is used.
 public sealed record BuddyProduct(string Provider, string Name, string Endpoint, string Platform, string ProductCode)
 {
-    public const string ClientVersion = "0.6.0";
+    public const string ClientVersion = "0.6.1";
     public string Host => new Uri(Endpoint).Host;
     public string ProtocolVersion => Provider == Providers.CodeBuddy ? "1.106.1" : "5.5.2";
     public string AttributionName => Provider == Providers.CodeBuddy ? "CodeBuddy" : "WorkBuddy";
