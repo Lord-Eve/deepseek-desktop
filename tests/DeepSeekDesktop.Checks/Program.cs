@@ -78,6 +78,15 @@ Check(missingRelease, "An empty compatible release feed must not claim the app i
 bool invalidFeed = false;
 try { _ = UpdateFeed.Latest("{}"); } catch (InvalidDataException) { invalidFeed = true; }
 Check(invalidFeed, "An API error object must not be interpreted as a release list.");
+Check(latest.PackageSize == 0, "Releases without a reported asset size must fall back to byte counts without a percentage.");
+var sized = UpdateFeed.Latest("""[{"tag_name":"v0.7.0","draft":false,"assets":[{"name":"DeepSeekDesktop-0.7.0-win-x64.zip.sha256","size":100},{"name":"DeepSeekDesktop-0.7.0-win-x64.zip","size":160280982}]}]""");
+Check(sized.PackageSize == 160280982, "The update package size must come from the matching ZIP asset, not its checksum file.");
+var half = DownloadWatch.Report(80140491, sized.PackageSize);
+Check(half.Fraction is > 0.49 and < 0.51 && half.Message.Contains("76.4 / 152.9 MB") && half.Message.Contains("50%"), "Download progress must show megabytes and a percentage when the size is known.");
+Check(DownloadWatch.Report(200_000_000, sized.PackageSize).Fraction == 1 && DownloadWatch.Report(1048576, 0) is { Fraction: null } unknown && unknown.Message.Contains("已下载 1.0 MB"), "Progress must clamp overshoot and stay indeterminate without a known size.");
+var watch = new DownloadWatch(TimeSpan.FromSeconds(60)); var clock = DateTimeOffset.UnixEpoch;
+Check(!watch.Stalled(0, clock) && !watch.Stalled(0, clock.AddSeconds(59)) && watch.Stalled(0, clock.AddSeconds(60)), "A download receiving no data for the stall limit must be reported as stalled.");
+Check(!watch.Stalled(10, clock.AddSeconds(61)) && !watch.Stalled(10, clock.AddSeconds(120)) && watch.Stalled(10, clock.AddSeconds(121)), "New data must restart the stall timer.");
 var migrated = JsonSerializer.Deserialize<Settings>("""{"Port":22217,"ApiKey":"sk-local-previous-0123456789012345","Accounts":[{"Login":"old@example.test","Password":"old-password","DeviceId":"old-device"}]}""")!;
 Check(migrated.Provider == Providers.DeepSeek && migrated.Accounts[0].Provider == Providers.DeepSeek, "Old settings without provider fields must remain DeepSeek settings.");
 migrated.Accounts.Add(new Account { Provider = Providers.Qingyan, RefreshToken = "fixture-qingyan-refresh-0123456789" });

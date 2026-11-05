@@ -213,7 +213,7 @@ public partial class MainWindow : Window
         GrokAuthorizationCode.IsEnabled = SubmitGrokCodeButton.IsEnabled = grokLoginCancellation != null && grokLoginInput?.CanSubmit == true;
         DownloadUpdateButton.IsEnabled = availableRelease != null && !updating && !checkingUpdates && !signingIn && !busy && !stopInProgress;
         CheckUpdatesButton.IsEnabled = !checkingUpdates && !updating;
-        CancelUpdateButton.Visibility = updating ? Visibility.Visible : Visibility.Collapsed;
+        CancelUpdateButton.Visibility = UpdateProgressBar.Visibility = updating ? Visibility.Visible : Visibility.Collapsed;
         ServiceStatus.Text = stopInProgress ? "停止中" : busy ? "正在启动" : ready ? poolStatus?.Title ?? "账号状态待确认" : running ? "初始化中" : startFailure != null ? "自动启动失败" : "已停止";
         StatusPill.Background = new SolidColorBrush(ready
             ? poolStatus is { HasUsableAccount: true, HasFailures: false } ? Color.FromRgb(225, 246, 236) : Color.FromRgb(255, 237, 213)
@@ -556,14 +556,22 @@ public partial class MainWindow : Window
         Pages.SelectedIndex = 2;
         UpdateStatus.BringIntoView();
     }
+    private void ShowUpdateProgress(UpdateProgress progress)
+    {
+        if (quitting || !updating) return;
+        UpdateStatus.Text = progress.Message;
+        UpdateProgressBar.IsIndeterminate = progress.Fraction == null;
+        if (progress.Fraction is double fraction) UpdateProgressBar.Value = fraction * 100;
+    }
     private async void DownloadUpdate_Click(object sender, RoutedEventArgs e)
     {
         if (availableRelease == null || updating || checkingUpdates || quitting || grokLoginCancellation != null || buddyOperationCancellation != null || busy || stopInProgress) return;
         string? session = null; bool launched = false;
-        updating = true; installUpdateCancellation = CancellationTokenSource.CreateLinkedTokenSource(updateCancellation.Token); UpdateState();
+        updating = true; installUpdateCancellation = CancellationTokenSource.CreateLinkedTokenSource(updateCancellation.Token);
+        UpdateProgressBar.IsIndeterminate = true; UpdateProgressBar.Value = 0; UpdateState();
         try
         {
-            session = await UpdateService.PrepareAsync(availableRelease, () => engine.IsRunning, new Progress<string>(text => { if (!quitting) UpdateStatus.Text = text; }), installUpdateCancellation.Token);
+            session = await UpdateService.PrepareAsync(availableRelease, () => engine.IsRunning, new Progress<UpdateProgress>(ShowUpdateProgress), installUpdateCancellation.Token);
             installUpdateCancellation.Token.ThrowIfCancellationRequested();
             UpdateService.Launch(session);
             launched = true;

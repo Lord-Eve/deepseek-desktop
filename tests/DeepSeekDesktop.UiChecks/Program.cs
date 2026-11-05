@@ -161,8 +161,15 @@ internal static class Program
         typeof(MainWindow).GetField("updating", flags)!.SetValue(window, true);
         typeof(MainWindow).GetMethod("UpdateState", flags)!.Invoke(window, null);
         Check(!((Button)window.FindName("DownloadUpdateButton")).IsEnabled && !((Button)window.FindName("StartButton")).IsEnabled && ((Button)window.FindName("CancelUpdateButton")).Visibility == Visibility.Visible, "An update must prevent duplicate installation and service start while exposing cancellation.");
+        var updateBar = (ProgressBar)window.FindName("UpdateProgressBar");
+        Check(updateBar.Visibility == Visibility.Visible, "An update in progress must show its progress bar.");
+        typeof(MainWindow).GetMethod("ShowUpdateProgress", flags)!.Invoke(window, new object[] { DownloadWatch.Report(50, 200) });
+        Check(!updateBar.IsIndeterminate && Math.Abs(updateBar.Value - 25) < 0.01 && ((TextBlock)window.FindName("UpdateStatus")).Text.Contains("25%"), "Known download progress must fill the bar and update the status text.");
+        typeof(MainWindow).GetMethod("ShowUpdateProgress", flags)!.Invoke(window, new object[] { new UpdateProgress("下载完成，正在校验 SHA-256 并解压…") });
+        Check(updateBar.IsIndeterminate, "Steps without a measurable fraction must show an indeterminate bar.");
         typeof(MainWindow).GetField("updating", flags)!.SetValue(window, false);
         typeof(MainWindow).GetMethod("UpdateState", flags)!.Invoke(window, null);
+        Check(updateBar.Visibility == Visibility.Collapsed, "The update progress bar must hide when no update is running.");
         window.Closing += (_, e) => { if (e.Cancel) closeAttempts++; };
         window.Close();
         window.Close();

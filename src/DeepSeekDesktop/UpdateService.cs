@@ -11,7 +11,8 @@ namespace DeepSeekDesktop;
 internal static class UpdateService
 {
     internal static string Cache => Path.Combine(PrivateStorage.Root, "updates");
-    public static async Task<string> PrepareAsync(DesktopRelease release, Func<bool> resumeService, IProgress<string> progress, CancellationToken cancellation)
+    internal static readonly TimeSpan StallLimit = TimeSpan.FromSeconds(60);
+    public static async Task<string> PrepareAsync(DesktopRelease release, Func<bool> resumeService, IProgress<UpdateProgress> progress, CancellationToken cancellation)
     {
         string install = Path.TrimEndingDirectorySeparator(AppContext.BaseDirectory);
         string session = Path.Combine(Cache, Guid.NewGuid().ToString("N"));
@@ -26,9 +27,9 @@ internal static class UpdateService
             // Check directory write permission before stopping a running service.
             string probe = Path.Combine(install, ".update-write-" + Guid.NewGuid().ToString("N"));
             using (File.Create(probe)) { } File.Delete(probe);
-            progress.Report("正在下载更新包，可取消；完成后将退出并重启程序…");
-            await UpdateChecker.RunGhAsync(new[] { "release", "download", "v" + release.Version, "--repo", "Lord-Eve/deepseek-desktop", "--pattern", release.PackageName, "--pattern", release.PackageName + ".sha256", "--dir", session }, TimeSpan.FromMinutes(15), cancellation);
-            progress.Report("下载完成，正在校验 SHA-256 并解压…");
+            progress.Report(new("正在连接 GitHub 下载更新包，可取消；完成后将退出并重启程序…"));
+            await DownloadAsync(release, session, progress, cancellation);
+            progress.Report(new("下载完成，正在校验 SHA-256 并解压…"));
             await Task.Run(() =>
             {
                 cancellation.ThrowIfCancellationRequested();
@@ -44,6 +45,30 @@ internal static class UpdateService
             return session;
         }
         catch { try { Directory.Delete(session, true); } catch (IOException) { } catch (UnauthorizedAccessException) { } throw; }
+    }
+
+    private static async Task DownloadAsync(DesktopRelease release, string session, IProgress<UpdateProgress> progress, CancellationToken cancellation)
+    {
+        using var download = CancellationTokenSource.CreateLinkedTokenSource(cancellation);
+        // Stall detection ends hung connections, so the overall limit only bounds very slow but steady downloads.
+        var task = UpdateChecker.RunGhAsync(new[] { "release", "download", "v" + release.Version, "--repo", "Lord-Eve/deepseek-desktop", "--pattern", release.PackageName, "--pattern", release.PackageName + ".sha256", "--dir", session }, TimeSpan.FromMinutes(60), download.Token);
+        string package = Path.Combine(session, release.PackageName);
+        var watch = new DownloadWatch(StallLimit);
+        bool stalled = false;
+        while (!task.IsCompleted && !cancellation.IsCancellationRequested)
+        {
+            await Task.WhenAny(task, Task.Delay(500, cancellation)).ConfigureAwait(true);
+            if (task.IsCompleted || cancellation.IsCancellationRequested) break;
+            long bytes = 0;
+            try { if (File.Exists(package)) bytes = new FileInfo(package).Length; } catch (IOException) { }
+            progress.Report(DownloadWatch.Report(bytes, release.PackageSize));
+            if (watch.Stalled(bytes, DateTimeOffset.UtcNow)) { stalled = true; download.Cancel(); break; }
+        }
+        try { await task.ConfigureAwait(true); }
+        catch (OperationCanceledException) when (stalled && !cancellation.IsCancellationRequested)
+        {
+            throw new TimeoutException($"下载已有 {StallLimit.TotalSeconds:0} 秒没有收到数据，已停止。请检查网络或代理后重试。");
+        }
     }
 
     public static void Launch(string session)
