@@ -74,7 +74,7 @@ public sealed class BuddyGateway : IAsyncDisposable
             if (!ready) { await ErrorAsync(context, 503, "Buddy 服务尚未就绪。", cancellation.Token); return; }
             if (context.Request.Method == "GET" && context.Request.Path == "/v1/models")
             {
-                await context.Response.WriteAsJsonAsync(new { @object = "list", data = models.Select(m => new { id = m.Id, @object = "model", owned_by = settings.Provider, name = m.Name, max_input_tokens = m.MaxInputTokens, max_output_tokens = m.MaxOutputTokens, reasoning_efforts = m.ReasoningEfforts }).ToArray() }, cancellation.Token); return;
+                await context.Response.WriteAsJsonAsync(new { @object = "list", data = models.Select(m => new { id = m.Id, @object = "model", owned_by = settings.Provider, name = m.Tier == null ? m.Name : $"{m.Name}（{m.Tier}）", tier = m.Tier, max_input_tokens = m.MaxInputTokens, max_output_tokens = m.MaxOutputTokens, reasoning_efforts = m.ReasoningEfforts }).ToArray() }, cancellation.Token); return;
             }
             bool responses = context.Request.Path == "/v1/responses";
             if (context.Request.Method != "POST" || !responses && context.Request.Path != "/v1/chat/completions") { await ErrorAsync(context, 404, "不支持的接口。", cancellation.Token); return; }

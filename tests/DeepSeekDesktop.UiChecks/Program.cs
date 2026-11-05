@@ -170,6 +170,13 @@ internal static class Program
         typeof(MainWindow).GetField("updating", flags)!.SetValue(window, false);
         typeof(MainWindow).GetMethod("UpdateState", flags)!.Invoke(window, null);
         Check(updateBar.Visibility == Visibility.Collapsed, "The update progress bar must hide when no update is running.");
+        var applyProxy = typeof(UpdateChecker).GetMethod("ApplyProxy", BindingFlags.NonPublic | BindingFlags.Static)!;
+        var proxied = new System.Diagnostics.ProcessStartInfo("gh.exe"); proxied.Environment["ALL_PROXY"] = "socks5://fixture-inherited:1";
+        applyProxy.Invoke(null, new object[] { proxied, "http://127.0.0.1:7897" });
+        Check(proxied.Environment["HTTPS_PROXY"] == "http://127.0.0.1:7897" && proxied.Environment["HTTP_PROXY"] == "http://127.0.0.1:7897" && !proxied.Environment.ContainsKey("ALL_PROXY"), "A configured proxy must route update downloads and replace inherited proxy variables.");
+        var direct = new System.Diagnostics.ProcessStartInfo("gh.exe"); direct.Environment["HTTPS_PROXY"] = "http://fixture-inherited:2";
+        applyProxy.Invoke(null, new object[] { direct, "" });
+        Check(direct.Environment["HTTPS_PROXY"] == "http://fixture-inherited:2", "An empty proxy setting must leave the inherited environment untouched.");
         window.Closing += (_, e) => { if (e.Cancel) closeAttempts++; };
         window.Close();
         window.Close();

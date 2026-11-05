@@ -12,7 +12,7 @@ internal static class UpdateService
 {
     internal static string Cache => Path.Combine(PrivateStorage.Root, "updates");
     internal static readonly TimeSpan StallLimit = TimeSpan.FromSeconds(60);
-    public static async Task<string> PrepareAsync(DesktopRelease release, Func<bool> resumeService, IProgress<UpdateProgress> progress, CancellationToken cancellation)
+    public static async Task<string> PrepareAsync(DesktopRelease release, Func<bool> resumeService, IProgress<UpdateProgress> progress, CancellationToken cancellation, string proxyUrl = "")
     {
         string install = Path.TrimEndingDirectorySeparator(AppContext.BaseDirectory);
         string session = Path.Combine(Cache, Guid.NewGuid().ToString("N"));
@@ -28,7 +28,7 @@ internal static class UpdateService
             string probe = Path.Combine(install, ".update-write-" + Guid.NewGuid().ToString("N"));
             using (File.Create(probe)) { } File.Delete(probe);
             progress.Report(new("正在连接 GitHub 下载更新包，可取消；完成后将退出并重启程序…"));
-            await DownloadAsync(release, session, progress, cancellation);
+            await DownloadAsync(release, session, progress, cancellation, proxyUrl);
             progress.Report(new("下载完成，正在校验 SHA-256 并解压…"));
             await Task.Run(() =>
             {
@@ -47,11 +47,11 @@ internal static class UpdateService
         catch { try { Directory.Delete(session, true); } catch (IOException) { } catch (UnauthorizedAccessException) { } throw; }
     }
 
-    private static async Task DownloadAsync(DesktopRelease release, string session, IProgress<UpdateProgress> progress, CancellationToken cancellation)
+    private static async Task DownloadAsync(DesktopRelease release, string session, IProgress<UpdateProgress> progress, CancellationToken cancellation, string proxyUrl)
     {
         using var download = CancellationTokenSource.CreateLinkedTokenSource(cancellation);
         // Stall detection ends hung connections, so the overall limit only bounds very slow but steady downloads.
-        var task = UpdateChecker.RunGhAsync(new[] { "release", "download", "v" + release.Version, "--repo", "Lord-Eve/deepseek-desktop", "--pattern", release.PackageName, "--pattern", release.PackageName + ".sha256", "--dir", session }, TimeSpan.FromMinutes(60), download.Token);
+        var task = UpdateChecker.RunGhAsync(new[] { "release", "download", "v" + release.Version, "--repo", "Lord-Eve/deepseek-desktop", "--pattern", release.PackageName, "--pattern", release.PackageName + ".sha256", "--dir", session }, TimeSpan.FromMinutes(60), download.Token, proxyUrl);
         string package = Path.Combine(session, release.PackageName);
         var watch = new DownloadWatch(StallLimit);
         bool stalled = false;
@@ -67,7 +67,9 @@ internal static class UpdateService
         try { await task.ConfigureAwait(true); }
         catch (OperationCanceledException) when (stalled && !cancellation.IsCancellationRequested)
         {
-            throw new TimeoutException($"下载已有 {StallLimit.TotalSeconds:0} 秒没有收到数据，已停止。请检查网络或代理后重试。");
+            throw new TimeoutException($"下载已有 {StallLimit.TotalSeconds:0} 秒没有收到数据，已停止。" + (proxyUrl.Length == 0
+                ? "使用 Clash 等透明代理时，可在“连接设置”填写其 HTTP 代理端口（例如 http://127.0.0.1:7897）后重试。"
+                : "请检查“连接设置”中的代理是否可用后重试。"));
         }
     }
 

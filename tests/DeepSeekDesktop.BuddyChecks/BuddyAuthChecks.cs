@@ -151,7 +151,12 @@ internal static class BuddyAuthChecks
                 if (request.RequestUri.AbsolutePath.EndsWith("/models", StringComparison.Ordinal))
                     return Json(new { code = 0, data = new { models = new object[] { new { id = "deepseek-v4.1-flash", name = "DeepSeek", maxOutputTokens = 128000, reasoning = new { supportedEfforts = new[] { "low", "high" }, defaultEffort = "high" } }, new { id = "completion-fixture", name = "Completion", maxOutputTokens = 100 } } } });
                 if (request.RequestUri.AbsolutePath == "/v3/config")
-                    return Json(new { code = 0, data = new { models = new object[] { new { id = "deepseek-v4.1-flash", name = "fallback", maxOutputTokens = 32000 }, new { id = "fixture-regional-model", name = "Regional", maxOutputTokens = 64000 } } } });
+                    return Json(new { code = 0, data = new { models = new object[] { new { id = "deepseek-v4.1-flash", name = "fallback", maxOutputTokens = 32000 }, new { id = "fixture-regional-model", name = "Regional", maxOutputTokens = 64000 } }, modelTiers = new object[]
+                    {
+                        new { enabled = true, priority = 1, modelIds = new[] { "fixture-regional-model", "deepseek-v4.1-flash" }, badge = new { label = "Pro Only" } },
+                        new { enabled = false, priority = 9, modelIds = new[] { "fixture-regional-model" }, badge = new { label = "Disabled tier" } },
+                        new { enabled = true, priority = 5, modelIds = new[] { "fixture-regional-model" }, badge = new { label = "Higher tier" } }
+                    } } });
                 if (request.RequestUri.AbsolutePath == "/v2/billing/meter/get-user-resource")
                     return Json(new { code = 0, data = new { Response = new { Data = new { Accounts = new object[] { new { CapacityUnit = "credit", Status = 0, CycleCapacityRemainPrecise = "55.67000031", CycleCapacityRemain = 55, CapacityRemain = 999999 }, new { CapacityUnit = "credit", Status = 3, CycleCapacityRemain = 500 }, new { CapacityUnit = "credit", Status = 0, CycleCapacityRemain = 100, DeductionEndTime = 1 }, new { CapacityUnit = "token", Status = 0, CycleCapacityRemain = 1234 } } } } } });
                 throw new Exception("Unexpected catalog/balance request.");
@@ -159,6 +164,7 @@ internal static class BuddyAuthChecks
             var client = new BuddyClient(http, account);
             var models = await client.FetchModelsAsync(CancellationToken.None);
             Check(models.Count == 2 && models.Single(m => m.Id == "deepseek-v4.1-flash").MaxOutputTokens == 128000 && models.Any(m => m.Id == "fixture-regional-model"), "Catalogs must merge by model ID, prefer scoped metadata, and remove completion-only models.");
+            Check(models.Single(m => m.Id == "deepseek-v4.1-flash").Tier == "Pro Only" && models.Single(m => m.Id == "fixture-regional-model").Tier == "Higher tier", "Plan tiers from /v3/config must attach to merged models, ignore disabled tiers and prefer the highest priority.");
             var balance = await client.FetchBalanceAsync(CancellationToken.None);
             Check(balance.Credits == 55.67m && balance.ActivePackages == 1, "Balance must use precise current-cycle credits and exclude expired packages and other units.");
         }
@@ -166,6 +172,20 @@ internal static class BuddyAuthChecks
         {
             await RejectAsync(() => new BuddyClient(http, Fixture()).FetchBalanceAsync(CancellationToken.None), 502);
             checks++;
+        }
+        var chat = new System.Text.Json.Nodes.JsonObject { ["model"] = "gemini-3.8-flash", ["messages"] = new System.Text.Json.Nodes.JsonArray() };
+        foreach (var refusal in new Func<HttpResponseMessage>[]
+        {
+            () => Json(new { code = 11158, msg = "model [gemini-3.8-flash] is not allowed for user type [personal_free_user]" }, HttpStatusCode.BadRequest),
+            () => new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("data: {\"code\":11158,\"msg\":\"model [gemini-3.8-flash] is not allowed for user type [personal_free_user]\"}\n\n", Encoding.UTF8, "text/event-stream") }
+        })
+        {
+            using var http = new HttpClient(new MockHandler(_ => refusal()));
+            UpstreamException? planError = null;
+            try { await foreach (var _ in new BuddyClient(http, Fixture()).EventsAsync(chat, CancellationToken.None)) { } }
+            catch (UpstreamException ex) { planError = ex; }
+            Check(planError is { Status: 403 } && planError.Message.Contains("套餐", StringComparison.Ordinal) && planError.Message.Contains("11158", StringComparison.Ordinal) && !planError.Message.Contains("personal_free_user", StringComparison.Ordinal),
+                "Code 11158 must be reported as the account plan refusing the model, whether it arrives as an HTTP error or a stream frame, without echoing the upstream body.");
         }
         using (var http = new HttpClient(new MockHandler(_ => new HttpResponseMessage(HttpStatusCode.TooManyRequests) { Content = new StringContent("<html>fixture-private-secret</html>") })))
         {

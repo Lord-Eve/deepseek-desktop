@@ -421,7 +421,9 @@ public partial class MainWindow : Window
             var ids = models.Select(model => model.Id).Distinct(StringComparer.Ordinal).ToArray();
             if (ids.Length == 0) throw new InvalidOperationException("账号没有返回可用模型，未替换当前测试模型。");
             buddyModels[provider + ":" + account.Id] = ids; string typed = BuddyModelBox.Text; BuddyModelBox.ItemsSource = ids; BuddyModelBox.Text = typed;
-            BuddyModelsStatus.Text = $"已读取 {ids.Length} 个模型；选择后点击“保存测试模型”。目录不代表已验证每个模型的调用权限。";
+            var gated = models.Where(model => model.Tier != null).Select(model => $"{model.Id}（{model.Tier}）").ToArray();
+            BuddyModelsStatus.Text = $"已读取 {ids.Length} 个模型；选择后点击“保存测试模型”。目录不按账号套餐过滤，不代表每个模型都能调用。"
+                + (gated.Length == 0 ? "" : $"以下模型有套餐限制，免费账号调用会报 11158：{string.Join("、", gated)}。");
             Tell("账号模型目录已读取，未发送模型对话。");
         }
         catch (OperationCanceledException) { if (!quitting) BuddyModelsStatus.Text = "模型查询已取消或超时，原有目录和测试模型保留。"; }
@@ -535,7 +537,7 @@ public partial class MainWindow : Window
         UpdateStatus.Text = "正在检查更新…";
         try
         {
-            var release = await UpdateChecker.CheckAsync(updateCancellation.Token);
+            var release = await UpdateChecker.CheckAsync(updateCancellation.Token, settings.ProxyUrl);
             if (quitting) return;
             bool newer = release.Version > Version.Parse(App.Version);
             availableRelease = newer ? release : null;
@@ -571,7 +573,7 @@ public partial class MainWindow : Window
         UpdateProgressBar.IsIndeterminate = true; UpdateProgressBar.Value = 0; UpdateState();
         try
         {
-            session = await UpdateService.PrepareAsync(availableRelease, () => engine.IsRunning, new Progress<UpdateProgress>(ShowUpdateProgress), installUpdateCancellation.Token);
+            session = await UpdateService.PrepareAsync(availableRelease, () => engine.IsRunning, new Progress<UpdateProgress>(ShowUpdateProgress), installUpdateCancellation.Token, settings.ProxyUrl);
             installUpdateCancellation.Token.ThrowIfCancellationRequested();
             UpdateService.Launch(session);
             launched = true;

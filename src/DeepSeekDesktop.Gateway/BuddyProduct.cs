@@ -8,7 +8,7 @@ namespace DeepSeekDesktop.Gateway;
 // 6fa74723d42ff605d1de349589c21a1ac4eb7ba2 (MIT). No upstream runtime is used.
 public sealed record BuddyProduct(string Provider, string Name, string Endpoint, string Platform, string ProductCode)
 {
-    public const string ClientVersion = "0.6.2";
+    public const string ClientVersion = "0.6.3";
     public string Host => new Uri(Endpoint).Host;
     public string ProtocolVersion => Provider == Providers.CodeBuddy ? "1.106.1" : "5.5.2";
     public string AttributionName => Provider == Providers.CodeBuddy ? "CodeBuddy" : "WorkBuddy";
@@ -75,13 +75,17 @@ public sealed record BuddyTokens(string AccessToken, string RefreshToken, long E
 }
 
 public sealed record BuddyModel(string Id, string Name, int? MaxInputTokens = null, int? MaxOutputTokens = null,
-    bool SupportsImages = false, string[]? ReasoningEfforts = null, string? DefaultReasoningEffort = null);
+    bool SupportsImages = false, string[]? ReasoningEfforts = null, string? DefaultReasoningEffort = null, string? Tier = null);
 
 public sealed record BuddyBalance(decimal Credits, int ActivePackages, DateTimeOffset CheckedAt);
 
 internal static class BuddyHttp
 {
     internal const int MaxJsonBytes = 4 * 1024 * 1024;
+    // "model [X] is not allowed for user type [...]": the account's plan, not the request shape.
+    internal const int ModelNotInPlan = 11158;
+
+    internal static UpstreamException PlanRestricted(BuddyProduct product) => new(403, product.Name + "当前账号套餐不能使用该模型（上游代码 11158）。请改用账号有权限的模型；模型列表中标为 Pro Only 等层级的模型通常需要付费账号，免费账号可用 DeepSeek、GLM、Kimi、混元等。");
 
     internal static async Task<JsonDocument> ReadJsonAsync(HttpResponseMessage response, CancellationToken cancellation)
     {
@@ -131,6 +135,7 @@ internal static class BuddyHttp
     internal static UpstreamException Failure(BuddyProduct product, int status, int code = 0, bool refresh = false)
     {
         if (code == 12403) return new UpstreamException(502, product.Name + "上游拒绝客户端版本标识，请更新 DeepSeek Desktop 后重试（上游代码 12403）。");
+        if (code == ModelNotInPlan) return PlanRestricted(product);
         string suffix = code == 0 ? "" : $"（上游代码 {code}）";
         int classification = status is >= 200 and < 300 && code is 401 or 403 or 429 ? code : status;
         int mapped = classification is 400 or 402 or 403 or 422 or 426 or 429 ? classification : classification == 401 ? 401 : 502;

@@ -10,12 +10,21 @@ namespace DeepSeekDesktop;
 
 public static class UpdateChecker
 {
-    public static async Task<DesktopRelease> CheckAsync(CancellationToken cancellationToken = default)
+    public static async Task<DesktopRelease> CheckAsync(CancellationToken cancellationToken = default, string proxyUrl = "")
     {
-        string json = await RunGhAsync(new[] { "api", "--hostname", "github.com", "repos/Lord-Eve/deepseek-desktop/releases?per_page=100" }, TimeSpan.FromSeconds(15), cancellationToken);
+        string json = await RunGhAsync(new[] { "api", "--hostname", "github.com", "repos/Lord-Eve/deepseek-desktop/releases?per_page=100" }, TimeSpan.FromSeconds(15), cancellationToken, proxyUrl);
         return UpdateFeed.Latest(json);
     }
-    internal static async Task<string> RunGhAsync(string[] arguments, TimeSpan limit, CancellationToken cancellationToken)
+    // gh honours the standard proxy variables; the configured proxy replaces whatever the app inherited,
+    // so a transparent proxy that stalls GitHub downloads can be bypassed from the settings page.
+    internal static void ApplyProxy(ProcessStartInfo info, string proxyUrl)
+    {
+        if (proxyUrl.Length == 0) return;
+        foreach (string name in new[] { "HTTPS_PROXY", "HTTP_PROXY", "https_proxy", "http_proxy" }) info.Environment[name] = proxyUrl;
+        info.Environment.Remove("ALL_PROXY"); info.Environment.Remove("all_proxy");
+        info.Environment["NO_PROXY"] = "localhost,127.0.0.1,::1";
+    }
+    internal static async Task<string> RunGhAsync(string[] arguments, TimeSpan limit, CancellationToken cancellationToken, string proxyUrl = "")
     {
         cancellationToken.ThrowIfCancellationRequested();
         var info = new ProcessStartInfo("gh.exe")
@@ -28,6 +37,7 @@ public static class UpdateChecker
         foreach (var argument in arguments)
             info.ArgumentList.Add(argument);
         info.Environment["GH_PROMPT_DISABLED"] = "1";
+        ApplyProxy(info, proxyUrl);
         using var process = new Process { StartInfo = info };
         try { process.Start(); }
         catch (Win32Exception)

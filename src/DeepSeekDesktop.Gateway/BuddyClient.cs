@@ -69,7 +69,9 @@ public sealed class BuddyClient(HttpClient http, Account account, Action<string,
                 using var json = await BuddyHttp.ReadJsonAsync(response, cancellation);
                 int code = BuddyHttp.Code(json.RootElement);
                 if (code != 0) throw BuddyHttp.Failure(product, (int)response.StatusCode, code);
-                foreach (var model in ParseModels(json.RootElement)) models.TryAdd(model.Id, model);
+                foreach (var model in ParseModels(json.RootElement))
+                    // Only /v3/config carries plan tiers; keep the richer first entry but adopt its tier.
+                    if (!models.TryAdd(model.Id, model) && model.Tier != null && models[model.Id].Tier == null) models[model.Id] = models[model.Id] with { Tier = model.Tier };
             }
             catch (UpstreamException ex) when (ex.Status is not (401 or 503)) { failure = ex; }
             catch (HttpRequestException) { failure = new UpstreamException(502, product.Name + "模型目录连接失败，请检查网络。"); }
@@ -103,6 +105,20 @@ public sealed class BuddyClient(HttpClient http, Account account, Action<string,
             && features.TryGetProperty("ModelTrialBanner", out var trial) && trial.ValueKind == JsonValueKind.Object
             && trial.TryGetProperty("banners", out var banners) && banners.ValueKind == JsonValueKind.Array)
             ordered.AddRange(banners.EnumerateArray().Select(v => BuddyHttp.Text(v, "targetModelId")));
+        // The catalog is not filtered by plan: modelTiers labels the models a plan gates
+        // ("Pro Only" internationally, refused with 11158 on free accounts).
+        var tiers = new Dictionary<string, (int Priority, string Label)>(StringComparer.Ordinal);
+        if (data.TryGetProperty("modelTiers", out var tierList) && tierList.ValueKind == JsonValueKind.Array)
+            foreach (var tier in tierList.EnumerateArray())
+            {
+                if (tier.ValueKind != JsonValueKind.Object || !tier.TryGetProperty("enabled", out var enabled) || enabled.ValueKind != JsonValueKind.True
+                    || !tier.TryGetProperty("modelIds", out var ids) || ids.ValueKind != JsonValueKind.Array) continue;
+                string label = tier.TryGetProperty("badge", out var badge) ? BuddyHttp.Text(badge, "label").Trim() : "";
+                if (label.Length is 0 or > 40 || label.Any(char.IsControl)) continue;
+                int priority = int.TryParse(BuddyHttp.Text(tier, "priority"), out int value) ? value : 0;
+                foreach (var modelId in ids.EnumerateArray().Where(v => v.ValueKind == JsonValueKind.String).Select(v => v.GetString()!))
+                    if (!tiers.TryGetValue(modelId, out var known) || priority > known.Priority) tiers[modelId] = (priority, label);
+            }
         var result = new List<BuddyModel>();
         foreach (string id in ordered.Distinct(StringComparer.Ordinal))
         {
@@ -124,7 +140,7 @@ public sealed class BuddyClient(HttpClient http, Account account, Action<string,
                 if (value is "none" or "low" or "medium" or "high" or "xhigh" or "max") defaultEffort = value;
             }
             bool images = entry.ValueKind == JsonValueKind.Object && entry.TryGetProperty("supportsImages", out var imageValue) && imageValue.ValueKind == JsonValueKind.True;
-            result.Add(new(id, name.Length is > 0 and <= 160 && !name.Any(char.IsControl) ? name : id, PositiveInt(entry, "maxInputTokens"), PositiveInt(entry, "maxOutputTokens"), images, efforts, defaultEffort));
+            result.Add(new(id, name.Length is > 0 and <= 160 && !name.Any(char.IsControl) ? name : id, PositiveInt(entry, "maxInputTokens"), PositiveInt(entry, "maxOutputTokens"), images, efforts, defaultEffort, tiers.TryGetValue(id, out var gated) ? gated.Label : null));
         }
         return result;
     }
@@ -244,6 +260,7 @@ public sealed class BuddyClient(HttpClient http, Account account, Action<string,
                 JsonObject frame;
                 try { frame = JsonNode.Parse(payload) as JsonObject ?? throw new JsonException(); }
                 catch (JsonException) { throw new UpstreamException(502, "Buddy 返回了无效的对话数据帧。"); }
+                if (frame["code"] is JsonValue gate && gate.TryGetValue<int>(out int gateCode) && gateCode == BuddyHttp.ModelNotInPlan) throw BuddyHttp.PlanRestricted(product);
                 if (frame.ContainsKey("error") || frame["code"] is JsonValue business && business.TryGetValue<int>(out int code) && code != 0)
                     throw new UpstreamException(502, product.Name + "对话被上游中止，请检查模型权限、内容或账号额度。");
                 if (frame["choices"] is JsonArray choices)
